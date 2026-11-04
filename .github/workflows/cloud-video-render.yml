@@ -181,7 +181,7 @@ jobs:
           if [[ -s voiceover.audio ]]; then FFMPEG_ARGS+=(-itsoffset "$VOICE_START" -i voiceover.audio); fi
           FFMPEG_ARGS+=(-vf "$FILTER" -map 0:v:0)
           if [[ -s voiceover.audio ]]; then
-            FFMPEG_ARGS+=(-map 1:a:0 -shortest)
+            FFMPEG_ARGS+=(-map 1:a:0 -af apad -shortest)
           else
             FFMPEG_ARGS+=(-map "0:a?")
           fi
