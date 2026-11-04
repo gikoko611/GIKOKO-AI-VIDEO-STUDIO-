@@ -47,6 +47,11 @@ on:
         type: choice
         options: ["auto", "my", "en"]
         default: "auto"
+      timeline_json:
+        description: "Timeline clip timing data from the editor"
+        required: false
+        type: string
+        default: "[]"
 
 permissions:
   contents: read
@@ -122,6 +127,7 @@ jobs:
           WATERMARK: ${{ inputs.watermark }}
           TRIM_START: ${{ inputs.trim_start }}
           TRIM_END: ${{ inputs.trim_end }}
+          TIMELINE_JSON: ${{ inputs.timeline_json }}
         run: |
           set -euo pipefail
           case "$ASPECT_RATIO" in
@@ -136,6 +142,33 @@ jobs:
             awk -v s="$TRIM_START" -v e="$TRIM_END" 'BEGIN { exit !(e > s) }' || { echo "trim_end must be greater than trim_start"; exit 1; }
           fi
           printf '%s' "$WATERMARK" > watermark.txt
+          python - <<'PY'
+          import json, os
+          clips = json.loads(os.environ.get("TIMELINE_JSON", "[]") or "[]")
+          if not isinstance(clips, list): raise SystemExit("timeline_json must be a JSON list")
+          def first(track):
+              return next((c for c in clips if c.get("track") == track), {})
+          voice = first("VOICE")
+          subtitle = first("SUBTITLE")
+          with open("timeline.env", "w") as out:
+              out.write("VOICE_START=" + str(max(0, float(voice.get("start", 0) or 0))) + "\n")
+              out.write("SUBTITLE_START=" + str(max(0, float(subtitle.get("start", 0) or 0))) + "\n")
+          PY
+          source timeline.env
+          if [[ -s subtitles.srt && "$SUBTITLE_START" != "0.0" ]]; then
+            SUBTITLE_OFFSET="$SUBTITLE_START" python - <<'PY'
+          import os, re
+          offset = float(os.environ["SUBTITLE_OFFSET"])
+          def shift(m):
+              total = ((int(m.group(1))*3600 + int(m.group(2))*60 + int(m.group(3)))*1000 + int(m.group(4))) + round(offset*1000)
+              h, total = divmod(total,3600000); mi,total=divmod(total,60000); sec,total=divmod(total,1000)
+              return f"{h:02}:{mi:02}:{sec:02},{total:03}"
+          p = "subtitles.srt"
+          data = open(p, encoding="utf-8").read()
+          data = re.sub(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})", shift, data)
+          open(p, "w", encoding="utf-8").write(data)
+          PY
+          fi
           FILTER="scale=$SIZE:force_original_aspect_ratio=decrease,pad=$SIZE:(ow-iw)/2:(oh-ih)/2"
           if [[ -s subtitles.srt ]]; then
             FILTER="$FILTER,subtitles=subtitles.srt"
@@ -145,7 +178,7 @@ jobs:
           if [[ "$TRIM_START" != "0" ]]; then FFMPEG_ARGS+=(-ss "$TRIM_START"); fi
           if [[ -n "$TRIM_END" ]]; then FFMPEG_ARGS+=(-to "$TRIM_END"); fi
           FFMPEG_ARGS+=(-i input.mp4)
-          if [[ -s voiceover.audio ]]; then FFMPEG_ARGS+=(-i voiceover.audio); fi
+          if [[ -s voiceover.audio ]]; then FFMPEG_ARGS+=(-itsoffset "$VOICE_START" -i voiceover.audio); fi
           FFMPEG_ARGS+=(-vf "$FILTER" -map 0:v:0)
           if [[ -s voiceover.audio ]]; then
             FFMPEG_ARGS+=(-map 1:a:0 -shortest)
