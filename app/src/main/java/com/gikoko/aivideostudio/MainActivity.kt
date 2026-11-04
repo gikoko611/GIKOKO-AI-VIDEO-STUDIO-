@@ -375,7 +375,17 @@ private fun StudioApp() {
                             else if (aspectRatio !in listOf("9:16", "16:9", "1:1")) status = "Aspect ratio must be 9:16, 16:9, or 1:1."
                             else {
                                 renderBusy = true; status = "Submitting GitHub render job…"
-                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio, voiceoverUrl, subtitleUrl, trimStart, trimEnd, autoSubtitles) }) { _, error ->
+                                val timelinePayload = JSONArray().apply {
+                                    timelineClips.forEach { clip ->
+                                        put(JSONObject()
+                                            .put("track", clip.track)
+                                            .put("title", clip.title)
+                                            .put("start", clip.startSeconds.toDoubleOrNull() ?: 0.0)
+                                            .put("duration", clip.durationSeconds.toDoubleOrNull() ?: 0.0)
+                                            .put("source", clip.source))
+                                    }
+                                }.toString()
+                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio, voiceoverUrl, subtitleUrl, trimStart, trimEnd, autoSubtitles, timelinePayload) }) { _, error ->
                                     renderBusy = false
                                     status = error?.let { "Cloud render dispatch failed: $it" } ?: "Render job submitted. Tap Check latest job to view progress."
                                 }
@@ -577,7 +587,7 @@ private fun uploadToLitterbox(context: android.content.Context, uri: Uri): Strin
     }
 }
 
-private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String, autoSubtitles: Boolean): String {
+private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String, autoSubtitles: Boolean, timelineJson: String): String {
     require(token.isNotBlank()) { "GitHub token is required." }
     require(videoUrl.startsWith("https://")) { "Only HTTPS source URLs are accepted." }
     require(ratio in listOf("9:16", "16:9", "1:1")) { "Unsupported aspect ratio." }
@@ -591,6 +601,7 @@ private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, 
             .put("subtitle_url", subtitleUrl.trim())
             .put("auto_subtitles", autoSubtitles)
             .put("subtitle_language", "auto")
+            .put("timeline_json", timelineJson)
             .put("trim_start", trimStart.trim().ifBlank { "0" })
             .put("trim_end", trimEnd.trim()))
     githubRequest(token, "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/cloud-video-render.yml/dispatches", "POST", body.toString())
