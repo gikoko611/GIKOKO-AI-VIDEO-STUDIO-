@@ -223,26 +223,30 @@ jobs:
       - name: Mix timeline audio and apply image overlays
         env:
           TIMELINE_JSON: ${{ inputs.timeline_json }}
-          VOICEOVER_URL: ${{ inputs.voiceover_url }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, subprocess, urllib.request
           clips = json.loads(os.environ.get("TIMELINE_JSON", "[]") or "[]")
-          primary_voice = os.environ.get("VOICEOVER_URL", "").strip()
-          audio = [c for c in clips if c.get("track") == "VOICE" and str(c.get("source", "")).startswith("https://") and c.get("source") != primary_voice]
+          audio = [c for c in clips if c.get("track") == "VOICE" and str(c.get("source", "")).startswith("https://")]
           images = [c for c in clips if c.get("track") == "OVERLAY" and str(c.get("source", "")).startswith("https://")]
-          args = ["ffmpeg", "-y", "-i", "output.mp4"]
-          filters = []
-          audio_labels = []
+          probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", "output.mp4"], capture_output=True, text=True)
+          if probe.stdout.strip():
+              subprocess.run(["ffmpeg", "-y", "-i", "output.mp4", "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", "base-audio.wav"], check=True)
+          else:
+              duration = subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "output.mp4"], text=True).strip()
+              subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-t", duration, "-c:a", "pcm_s16le", "base-audio.wav"], check=True)
+          args = ["ffmpeg", "-y", "-i", "output.mp4", "-i", "base-audio.wav"]
+          filters = ["[1:a:0]aresample=48000[abase]"]
+          audio_labels = ["[abase]"]
           for i, clip in enumerate(audio):
               path = f"timeline-audio-{i:03}.bin"
               urllib.request.urlretrieve(clip["source"], path)
-              start = max(0, float(clip.get("start", 0) or 0))
-              duration = max(0.1, float(clip.get("duration", 0) or 0))
-              args += ["-itsoffset", str(start), "-t", str(duration), "-i", path]
+              args += ["-itsoffset", str(max(0, float(clip.get("start", 0) or 0))), "-i", path]
+              idx = i + 2
               label = f"a{i}"
-              filters.append(f"[{i+1}:a:0]aresample=48000,volume=1.0[{label}]")
+              duration = max(0.1, float(clip.get("duration", 30) or 30))
+              filters.append(f"[{idx}:a:0]aresample=48000,atrim=duration={duration},volume=1.0[{label}]")
               audio_labels.append(f"[{label}]")
           for i, clip in enumerate(images):
               path = f"timeline-overlay-{i:03}.img"
@@ -250,23 +254,18 @@ jobs:
               args += ["-loop", "1", "-i", path]
           video_label = "0:v"
           for i, clip in enumerate(images):
-              input_index = 1 + len(audio) + i
+              input_index = 2 + len(audio) + i
               out_label = f"v{i+1}"
-              start = max(0, float(clip.get("start", 0) or 0))
-              end = start + max(0.1, float(clip.get("duration", 0) or 0))
-              filters.append(f"[{video_label}][{input_index}:v]overlay=W-w-24:H-h-24:enable='between(t,{start},{end})'[{out_label}]")
+              start_time = max(0, float(clip.get("start", 0) or 0))
+              duration = max(0.1, float(clip.get("duration", 30) or 30))
+              finish = start_time + duration
+              filters.append(f"[{video_label}][{input_index}:v]scale2ref=w=iw*0.25:h=ow/mdar[ov{i}][base{i}];[base{i}][ov{i}]overlay=W-w-24:H-h-24:enable='between(t,{start_time},{finish})'[{out_label}]")
               video_label = out_label
-          if audio:
-              filters.append("".join(audio_labels) + f"amix=inputs={len(audio)}:duration=longest:dropout_transition=2,apad[aout]")
-          if filters:
-              args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]" if images else "0:v:0"]
-              args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] if audio else ["-map", "0:a?"]
-              args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-shortest", "output-mixed.mp4"]
-              subprocess.run(args, check=True)
-              os.replace("output-mixed.mp4", "output.mp4")
-              print(f"Mixed {len(audio)} timeline audio clip(s) and applied {len(images)} image overlay(s).")
-          else:
-              print("No uploaded timeline audio or image overlay assets; keeping standard render.")
+          filters.append("".join(audio_labels) + f"amix=inputs={len(audio_labels)}:duration=first:dropout_transition=2[aout]")
+          args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]", "-map", "[aout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "output-mixed.mp4"]
+          subprocess.run(args, check=True)
+          os.replace("output-mixed.mp4", "output.mp4")
+          print(f"Mixed original audio with {len(audio)} timeline audio track(s) and applied {len(images)} image overlay(s).")
           PY
 
       - name: Export MP3 audio
