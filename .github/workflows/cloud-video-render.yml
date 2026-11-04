@@ -255,7 +255,7 @@ jobs:
           if audio:
               filters.append("".join(audio_labels) + f"amix=inputs={len(audio)}:duration=longest:dropout_transition=2[aout]")
           if filters:
-              args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]"]
+              args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]" if images else "0:v:0"]
               args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] if audio else ["-map", "0:a?"]
               args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-shortest", "output-mixed.mp4"]
               subprocess.run(args, check=True)
@@ -275,7 +275,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: GIKOKO-GITHUB-RENDER-${{ github.run_number }}
-          path: output.mp4
+          path: |
+            output.mp4
             output.mp3
           if-no-files-found: error
           retention-days: 3
