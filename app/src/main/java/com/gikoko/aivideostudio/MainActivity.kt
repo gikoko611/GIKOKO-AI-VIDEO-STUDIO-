@@ -214,7 +214,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.9.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.9.1 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -354,7 +354,7 @@ private fun StudioApp() {
                                         "VOICE" -> OutlinedButton(onClick = {
                                             if (!voiceoverUrl.startsWith("https://")) status = "Import and upload an audio file first. Then add it to the VOICE track."
                                             else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Audio track ${timelineClips.count { it.track == "VOICE" } + 1}", "0", "30", voiceoverUrl)); status = "Audio clip added. Upload another audio file to add another track." }
-                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add narration reference") }
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add audio clip") }
                                         "SUBTITLE" -> OutlinedButton(onClick = {
                                             if (subtitles.isBlank()) status = "Create subtitle text in Create first."
                                             else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Subtitle captions", "0", "30", "Editable subtitle text")); status = "Subtitle clip added." }
@@ -367,6 +367,7 @@ private fun StudioApp() {
                             }
                         }
                         val timelineEnd = timelineClips.maxOfOrNull { (it.startSeconds.toLongOrNull() ?: 0L) + (it.durationSeconds.toLongOrNull() ?: 0L) } ?: 0L
+                        Text("VIDEO clips are joined in start-time order. VOICE clips are mixed with individual start/duration. OVERLAY images appear at the top-right during their clip interval.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                         Text("Clips: ${timelineClips.size}   •   Timeline end: ${timelineEnd}s", color = Emerald, fontWeight = FontWeight.Bold)
                         OutlinedButton(onClick = { timelineClips.clear(); status = "Timeline cleared." }, modifier = Modifier.fillMaxWidth(), enabled = timelineClips.isNotEmpty()) { Text("Clear timeline") }
                     }
