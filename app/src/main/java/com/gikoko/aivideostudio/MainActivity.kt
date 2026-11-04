@@ -78,6 +78,7 @@ private fun StudioApp() {
     var selectedTab by remember { mutableIntStateOf(0) }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
     var discoveredModels by remember { mutableStateOf(listOf<String>()) }
+    var freeOnly by remember { mutableStateOf(true) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
     val voiceExportTarget = remember { AtomicReference<Uri?>(null) }
@@ -305,13 +306,20 @@ private fun StudioApp() {
                         Text("AI PROVIDER SETTINGS", color = Gold, fontWeight = FontWeight.Bold)
                         OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key (session only)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("FREE MODELS ONLY", color = Emerald, fontWeight = FontWeight.Bold)
+                                Text("Hide models unless the provider marks them free or reports zero input/output pricing.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Checkbox(checked = freeOnly, onCheckedChange = { freeOnly = it; discoveredModels = emptyList(); model = "" })
+                        }
                         OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Selected Model ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true, readOnly = true)
                         OutlinedButton(onClick = {
                             if (baseUrl.isBlank()) status = "Enter the provider Base URL first."
                             else if (apiKey.isBlank()) status = "Enter API Key first."
                             else {
                                 busy = true; status = "Connecting and loading model list…"
-                                runTask({ fetchModels(baseUrl, apiKey) }) { result, error ->
+                                runTask({ fetchModels(baseUrl, apiKey, freeOnly) }) { result, error ->
                                     busy = false
                                     if (error != null) status = "Connection/model loading failed: $error"
                                     else {
@@ -320,7 +328,7 @@ private fun StudioApp() {
                                             if (model !in discoveredModels) model = discoveredModels.first()
                                             modelMenuExpanded = true
                                             status = "Connected. Loaded ${discoveredModels.size} models. Choose one below."
-                                        } else status = "Connected, but provider returned no models in the OpenAI-compatible /models format."
+                                        } else status = if (freeOnly) "No verifiably free models found. This provider may not expose free-tier pricing in /models." else "Provider returned no models in the OpenAI-compatible /models format."
                                     }
                                 }
                             }
@@ -364,10 +372,25 @@ private fun callChat(base: String, key: String, model: String, userPrompt: Strin
         .ifBlank { throw IllegalStateException("Provider returned an empty response") }
 }
 
-private fun fetchModels(base: String, key: String): List<String> {
+private fun fetchModels(base: String, key: String, freeOnly: Boolean = true): List<String> {
     val response = requestJson(base.trimEnd('/') + "/models", key, "GET", null)
     val data = response.optJSONArray("data") ?: return emptyList()
-    return (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }.sorted()
+    return (0 until data.length()).mapNotNull { index ->
+        val item = data.optJSONObject(index) ?: return@mapNotNull null
+        val id = item.optString("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
+        if (!freeOnly || isExplicitlyFreeModel(id, item)) id else null
+    }.sorted()
+}
+
+private fun isExplicitlyFreeModel(id: String, item: JSONObject): Boolean {
+    val normalized = id.lowercase()
+    if (normalized.endsWith(":free") || normalized.contains("-free") || normalized.contains("_free")) return true
+    val pricing = item.optJSONObject("pricing") ?: return false
+    fun isZero(value: Any?): Boolean {
+        val number = value?.toString()?.toDoubleOrNull()
+        return number != null && number == 0.0
+    }
+    return isZero(pricing.opt("prompt")) && isZero(pricing.opt("completion"))
 }
 
 private fun requestJson(endpoint: String, key: String, method: String, body: String?): JSONObject {
