@@ -200,7 +200,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.6.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.7.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -308,7 +308,7 @@ private fun StudioApp() {
                     }
                     3 -> {
                         Text("MULTI-TRACK TIMELINE", color = Gold, fontWeight = FontWeight.Bold)
-                        Text("Arrange your project into separate Video, Voice, Subtitle and Overlay lanes. This first timeline version stores editable clip timing and source references; cloud rendering is not yet connected to these timeline positions.", color = Color.LightGray)
+                        Text("Arrange Video, Voice, Subtitle and Overlay clips. Cloud Render now applies the first Voice clip start offset and first Subtitle clip start offset. Video remains the main source URL; extra video clips and timed overlay compositing are not yet rendered.", color = Color.LightGray)
                         val trackNames = listOf("VIDEO", "VOICE", "SUBTITLE", "OVERLAY")
                         trackNames.forEach { trackName ->
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), modifier = Modifier.fillMaxWidth()) {
