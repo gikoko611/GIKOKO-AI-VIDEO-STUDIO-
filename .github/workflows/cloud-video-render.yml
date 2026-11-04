@@ -11,16 +11,31 @@ on:
         description: "Output aspect ratio"
         required: true
         type: choice
-        options:
-          - "9:16"
-          - "16:9"
-          - "1:1"
+        options: ["9:16", "16:9", "1:1"]
         default: "9:16"
       watermark:
         description: "Watermark text"
         required: false
         type: string
         default: "Powered by I KO KO"
+      voiceover_url:
+        description: "Optional direct downloadable MP3/WAV voiceover URL"
+        required: false
+        type: string
+      subtitle_url:
+        description: "Optional direct downloadable SRT subtitle URL (burned into video)"
+        required: false
+        type: string
+      trim_start:
+        description: "Optional trim start in seconds (e.g. 3.5)"
+        required: false
+        type: string
+        default: "0"
+      trim_end:
+        description: "Optional absolute trim end in seconds (leave blank for full video)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,19 +51,31 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           ffmpeg -version | head -n 2
 
-      - name: Download source video
+      - name: Download source media
         env:
           VIDEO_URL: ${{ inputs.video_url }}
+          VOICEOVER_URL: ${{ inputs.voiceover_url }}
+          SUBTITLE_URL: ${{ inputs.subtitle_url }}
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 --max-time 1800 "$VIDEO_URL" -o input.mp4
           test -s input.mp4
+          if [[ -n "$VOICEOVER_URL" ]]; then
+            curl --fail --location --retry 3 --max-time 900 "$VOICEOVER_URL" -o voiceover.audio
+            test -s voiceover.audio
+          fi
+          if [[ -n "$SUBTITLE_URL" ]]; then
+            curl --fail --location --retry 3 --max-time 900 "$SUBTITLE_URL" -o subtitles.srt
+            test -s subtitles.srt
+          fi
           ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
 
       - name: Render MP4
         env:
           ASPECT_RATIO: ${{ inputs.aspect_ratio }}
           WATERMARK: ${{ inputs.watermark }}
+          TRIM_START: ${{ inputs.trim_start }}
+          TRIM_END: ${{ inputs.trim_end }}
         run: |
           set -euo pipefail
           case "$ASPECT_RATIO" in
@@ -57,10 +84,30 @@ jobs:
             "1:1") SIZE="1080:1080" ;;
             *) echo "Unsupported aspect ratio"; exit 1 ;;
           esac
+          [[ "$TRIM_START" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "Invalid trim_start"; exit 1; }
+          if [[ -n "$TRIM_END" ]]; then
+            [[ "$TRIM_END" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "Invalid trim_end"; exit 1; }
+            awk -v s="$TRIM_START" -v e="$TRIM_END" 'BEGIN { exit !(e > s) }' || { echo "trim_end must be greater than trim_start"; exit 1; }
+          fi
           printf '%s' "$WATERMARK" > watermark.txt
-          ffmpeg -y -i input.mp4 \
-            -vf "scale=$SIZE:force_original_aspect_ratio=decrease,pad=$SIZE:(ow-iw)/2:(oh-ih)/2,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:textfile=watermark.txt:fontcolor=white:fontsize=32:box=1:boxcolor=black@0.45:boxborderw=12:x=w-tw-30:y=h-th-30" \
-            -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart output.mp4
+          FILTER="scale=$SIZE:force_original_aspect_ratio=decrease,pad=$SIZE:(ow-iw)/2:(oh-ih)/2"
+          if [[ -s subtitles.srt ]]; then
+            FILTER="$FILTER,subtitles=subtitles.srt"
+          fi
+          FILTER="$FILTER,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:textfile=watermark.txt:fontcolor=white:fontsize=32:box=1:boxcolor=black@0.45:boxborderw=12:x=w-tw-30:y=h-th-30"
+          FFMPEG_ARGS=(-y)
+          if [[ "$TRIM_START" != "0" ]]; then FFMPEG_ARGS+=(-ss "$TRIM_START"); fi
+          if [[ -n "$TRIM_END" ]]; then FFMPEG_ARGS+=(-to "$TRIM_END"); fi
+          FFMPEG_ARGS+=(-i input.mp4)
+          if [[ -s voiceover.audio ]]; then FFMPEG_ARGS+=(-i voiceover.audio); fi
+          FFMPEG_ARGS+=(-vf "$FILTER" -map 0:v:0)
+          if [[ -s voiceover.audio ]]; then
+            FFMPEG_ARGS+=(-map 1:a:0 -shortest)
+          else
+            FFMPEG_ARGS+=(-map "0:a?")
+          fi
+          FFMPEG_ARGS+=(-c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart output.mp4)
+          ffmpeg "${FFMPEG_ARGS[@]}"
           ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 output.mp4
 
       - name: Upload rendered MP4
