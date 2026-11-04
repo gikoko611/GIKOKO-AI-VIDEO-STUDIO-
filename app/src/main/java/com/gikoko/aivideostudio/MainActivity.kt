@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,29 +13,71 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { StudioHome() }
+        setContent { StudioRoot() }
+    }
+}
+
+@Composable
+private fun StudioRoot() {
+    var showSplash by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(2400)
+        showSplash = false
+    }
+    if (showSplash) SplashScreen() else StudioHome()
+}
+
+@Composable
+private fun SplashScreen() {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF050713)) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.giko_logo),
+                contentDescription = "G.I KO KO AI VIDEO STUDIO",
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentScale = ContentScale.Fit
+            )
+            Text(
+                "Powered by အိုင်ကိုကို",
+                color = Color(0xFFE6D7FF),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 18.dp)
+            )
+        }
     }
 }
 
@@ -51,8 +94,13 @@ private fun StudioHome() {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("G.I KO KO", style = MaterialTheme.typography.headlineLarge)
-                Text("AI VIDEO STUDIO", style = MaterialTheme.typography.titleLarge)
+                Image(
+                    painter = painterResource(id = R.drawable.giko_logo),
+                    contentDescription = "G.I KO KO logo",
+                    modifier = Modifier.size(150.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Text("G.I KO KO AI VIDEO STUDIO", style = MaterialTheme.typography.titleLarge)
                 Text("Hybrid Cloud Video Creator • Android 10 / ARMv7")
                 Text("SELECT RENDER ENGINE", style = MaterialTheme.typography.titleMedium)
 
@@ -82,7 +130,7 @@ private fun StudioHome() {
                     Text("Create New Video")
                 }
                 Text("Cloud render setup is included in the repository. The app-to-cloud job connection is still being implemented.")
-                Text("Powered by I KO KO", modifier = Modifier.padding(top = 12.dp))
+                Text("Powered by အိုင်ကိုကို", modifier = Modifier.padding(top = 12.dp))
             }
         }
     }
