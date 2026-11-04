@@ -71,6 +71,12 @@ private fun StudioApp() {
     var discoveredModels by remember { mutableStateOf(listOf<String>()) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    var githubToken by remember { mutableStateOf("") }
+    var sourceVideoUrl by remember { mutableStateOf("") }
+    var aspectRatio by remember { mutableStateOf("9:16") }
+    var renderRunUrl by remember { mutableStateOf("") }
+    var renderRunStatus by remember { mutableStateOf("No render job checked yet.") }
+    var renderBusy by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         val engine = TextToSpeech(context) { result ->
@@ -79,6 +85,15 @@ private fun StudioApp() {
         }
         tts = engine
         onDispose { engine.stop(); engine.shutdown() }
+    }
+
+    val subtitleExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(buildSrt(subtitles)) }
+                status = "SRT subtitle file exported."
+            } catch (error: Exception) { status = "SRT export failed: ${error.message}" }
+        }
     }
 
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -100,9 +115,9 @@ private fun StudioApp() {
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
-                listOf("Create", "Media", "Voice", "Settings").forEachIndexed { index, label ->
+                listOf("Create", "Media", "Voice", "Render", "Settings").forEachIndexed { index, label ->
                     NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index },
-                        icon = { Text(listOf("✦", "▣", "♫", "⚙")[index]) }, label = { Text(label) })
+                        icon = { Text(listOf("✦", "▣", "♫", "⇧", "⚙")[index]) }, label = { Text(label) })
                 }
             }
         }) { padding ->
@@ -130,6 +145,7 @@ private fun StudioApp() {
                         OutlinedTextField(value = script, onValueChange = { script = it }, modifier = Modifier.fillMaxWidth(), minLines = 7)
                         OutlinedTextField(value = subtitles, onValueChange = { subtitles = it }, label = { Text("Subtitle text (editable)") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
                         OutlinedButton(onClick = { subtitles = script.lines().filter { it.isNotBlank() }.joinToString("\n"); status = "Subtitle draft refreshed from script." }, modifier = Modifier.fillMaxWidth()) { Text("Create subtitle draft from script") }
+                        OutlinedButton(onClick = { if (subtitles.isBlank()) status = "Enter subtitle text first." else subtitleExporter.launch("GIKOKO_subtitles.srt") }, modifier = Modifier.fillMaxWidth()) { Text("Export timed SRT subtitles") }
                     }
                     1 -> {
                         Text("MEDIA LIBRARY", color = Gold, fontWeight = FontWeight.Bold)
@@ -148,6 +164,47 @@ private fun StudioApp() {
                         }, modifier = Modifier.fillMaxWidth()) { Text("Play voice preview") }
                         OutlinedButton(onClick = { tts?.stop(); status = "Voice stopped." }, modifier = Modifier.fillMaxWidth()) { Text("Stop voice") }
                         Text("This is device TTS preview, not MP3 export.")
+                    }
+                    3 -> {
+                        Text("CLOUD VIDEO RENDER", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("Send a publicly downloadable MP4 URL to the GitHub Actions FFmpeg renderer. A phone-only local file cannot be reached by GitHub until uploaded to a file host that provides a direct download URL.", color = Color.LightGray)
+                        OutlinedTextField(value = sourceVideoUrl, onValueChange = { sourceVideoUrl = it }, label = { Text("Direct MP4 download URL (HTTPS)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        OutlinedTextField(value = githubToken, onValueChange = { githubToken = it }, label = { Text("GitHub token — session only") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(value = aspectRatio, onValueChange = { aspectRatio = it }, label = { Text("Aspect ratio: 9:16 / 16:9 / 1:1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Button(onClick = {
+                            if (githubToken.isBlank()) status = "Enter a GitHub token with Actions read/write permission."
+                            else if (!sourceVideoUrl.startsWith("https://")) status = "Enter a direct HTTPS MP4 download URL."
+                            else if (aspectRatio !in listOf("9:16", "16:9", "1:1")) status = "Aspect ratio must be 9:16, 16:9, or 1:1."
+                            else {
+                                renderBusy = true; status = "Submitting GitHub render job…"
+                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio) }) { _, error ->
+                                    renderBusy = false
+                                    status = error?.let { "Cloud render dispatch failed: $it" } ?: "Render job submitted. Tap Check latest job to view progress."
+                                }
+                            }
+                        }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text(if (renderBusy) "Submitting…" else "Start Cloud Render") }
+                        OutlinedButton(onClick = {
+                            if (githubToken.isBlank()) status = "Enter GitHub token first."
+                            else {
+                                renderBusy = true; status = "Checking latest GitHub Actions job…"
+                                runTask({ latestCloudRun(githubToken) }) { result, error ->
+                                    renderBusy = false
+                                    if (error != null) status = "Job check failed: $error"
+                                    else {
+                                        val run = result as? JSONObject
+                                        renderRunStatus = "Status: " + run?.optString("status") + " | Conclusion: " + run?.optString("conclusion").ifNullOrEmpty("pending")
+                                        renderRunUrl = run?.optString("html_url").orEmpty()
+                                        status = renderRunStatus
+                                    }
+                                }
+                            }
+                        }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text("Check latest render job") }
+                        Text(renderRunStatus, color = Emerald)
+                        if (renderRunUrl.isNotBlank()) {
+                            OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(renderRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open GitHub job / download MP4 artifact") }
+                        }
+                        Text("Use a fine-grained GitHub token limited to this repository with Actions: Read and write and Metadata: Read. The token stays in memory only; never share it.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                        Text("GitHub Actions renders with CPU FFmpeg. Free minutes and artifact retention limits apply; GPU is not guaranteed.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     }
                     else -> {
                         Text("AI PROVIDER SETTINGS", color = Gold, fontWeight = FontWeight.Bold)
@@ -219,4 +276,76 @@ private fun requestJson(endpoint: String, key: String, method: String, body: Str
         if (code !in 200..299) throw IllegalStateException("HTTP $code: ${text.take(500)}")
         return JSONObject(text)
     } finally { connection.disconnect() }
+}
+
+
+private fun String?.ifNullOrEmpty(fallback: String): String =
+    if (this.isNullOrBlank()) fallback else this
+
+private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String): String {
+    require(token.isNotBlank()) { "GitHub token is required." }
+    require(videoUrl.startsWith("https://")) { "Only HTTPS source URLs are accepted." }
+    require(ratio in listOf("9:16", "16:9", "1:1")) { "Unsupported aspect ratio." }
+    val body = JSONObject()
+        .put("ref", "main")
+        .put("inputs", JSONObject()
+            .put("video_url", videoUrl)
+            .put("aspect_ratio", ratio)
+            .put("watermark", "Powered by I KO KO"))
+    githubRequest(token, "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/cloud-video-render.yml/dispatches", "POST", body.toString())
+    return "Workflow dispatch accepted."
+}
+
+private fun latestCloudRun(token: String): JSONObject {
+    val response = githubRequest(
+        token,
+        "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/cloud-video-render.yml/runs?branch=main&per_page=1",
+        "GET",
+        null
+    )
+    val runs = response.optJSONArray("workflow_runs")
+    if (runs == null || runs.length() == 0) throw IllegalStateException("No cloud render runs found yet. Wait a few seconds after dispatch.")
+    return runs.getJSONObject(0)
+}
+
+private fun githubRequest(token: String, path: String, method: String, body: String?): JSONObject {
+    val connection = URL("https://api.github.com$path").openConnection() as HttpURLConnection
+    try {
+        connection.requestMethod = method
+        connection.connectTimeout = 20000
+        connection.readTimeout = 45000
+        connection.setRequestProperty("Authorization", "Bearer $token")
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+        if (body != null) {
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+        }
+        val code = connection.responseCode
+        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+        val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("GitHub HTTP " + code + ": " + responseText.take(500))
+        return if (responseText.isBlank()) JSONObject() else JSONObject(responseText)
+    } finally { connection.disconnect() }
+}
+
+private fun buildSrt(text: String): String {
+    val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+    var cursorMs = 0L
+    return lines.mapIndexed { index, line ->
+        val duration = ((line.split(Regex("\\s+")).size / 2.5) * 1000).toLong().coerceAtLeast(1800L)
+        val start = cursorMs
+        val end = cursorMs + duration
+        cursorMs = end + 250L
+        (index + 1).toString() + "\n" + srtTime(start) + " --> " + srtTime(end) + "\n" + line
+    }.joinToString("\n\n")
+}
+
+private fun srtTime(milliseconds: Long): String {
+    val hours = milliseconds / 3_600_000
+    val minutes = (milliseconds % 3_600_000) / 60_000
+    val seconds = (milliseconds % 60_000) / 1_000
+    val millis = milliseconds % 1_000
+    return "%02d:%02d:%02d,%03d".format(hours, minutes, seconds, millis)
 }
