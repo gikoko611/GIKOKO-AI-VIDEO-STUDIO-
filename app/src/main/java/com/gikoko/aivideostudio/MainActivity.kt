@@ -184,7 +184,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.2.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.3.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -215,7 +215,8 @@ private fun StudioApp() {
                         OutlinedTextField(value = prompt, onValueChange = { prompt = it }, label = { Text("Video idea / prompt") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                         Button(onClick = {
                             if (apiKey.isBlank()) status = "Add your API key in Settings first."
-                            else if (model.isBlank()) status = "Enter a model ID first."
+                            else if (model.isBlank()) status = "Select a model first."
+                            else if (duration == "Custom" && (customDuration.toIntOrNull() !in 1..180)) status = "Custom duration must be between 1 and 180 minutes."
                             else {
                                 busy = true; status = "Generating script…"
                                 runTask({ callChat(baseUrl, apiKey, model, "Create a video script designed for $duration ${if (duration == "Custom") customDuration + " minutes" else ""}. Include scene directions, narration, and pacing appropriate to the selected duration. Return plain text. User idea: $prompt") }) { result, error ->
