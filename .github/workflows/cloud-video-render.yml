@@ -1,0 +1,72 @@
+name: Cloud Video Render (CPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct downloadable URL for the source MP4"
+        required: true
+        type: string
+      aspect_ratio:
+        description: "Output aspect ratio"
+        required: true
+        type: choice
+        options:
+          - "9:16"
+          - "16:9"
+          - "1:1"
+        default: "9:16"
+      watermark:
+        description: "Watermark text"
+        required: false
+        type: string
+        default: "Powered by I KO KO"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          ffmpeg -version | head -n 2
+
+      - name: Download source video
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 1800 "$VIDEO_URL" -o input.mp4
+          test -s input.mp4
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
+
+      - name: Render MP4
+        env:
+          ASPECT_RATIO: ${{ inputs.aspect_ratio }}
+          WATERMARK: ${{ inputs.watermark }}
+        run: |
+          set -euo pipefail
+          case "$ASPECT_RATIO" in
+            "9:16") SIZE="1080:1920" ;;
+            "16:9") SIZE="1920:1080" ;;
+            "1:1") SIZE="1080:1080" ;;
+            *) echo "Unsupported aspect ratio"; exit 1 ;;
+          esac
+          printf '%s' "$WATERMARK" > watermark.txt
+          ffmpeg -y -i input.mp4 \
+            -vf "scale=$SIZE:force_original_aspect_ratio=decrease,pad=$SIZE:(ow-iw)/2:(oh-ih)/2,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:textfile=watermark.txt:fontcolor=white:fontsize=32:box=1:boxcolor=black@0.45:boxborderw=12:x=w-tw-30:y=h-th-30" \
+            -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart output.mp4
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 output.mp4
+
+      - name: Upload rendered MP4
+        uses: actions/upload-artifact@v4
+        with:
+          name: GIKOKO-GITHUB-RENDER-${{ github.run_number }}
+          path: output.mp4
+          if-no-files-found: error
+          retention-days: 3
