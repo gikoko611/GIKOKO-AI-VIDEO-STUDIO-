@@ -2,50 +2,56 @@
 
 Android-first AI video production app targeting Android 10+ and 32-bit ARMv7 devices.
 
-## Android app status
+## Implemented in the current development build
 
-The current development build includes:
-- Jetpack Compose app shell with Create, Media, Voice, and Settings sections.
+- Jetpack Compose app shell with Create, Media, Voice, Render, and Settings sections.
 - OpenAI-compatible provider configuration (HTTPS base URL, API key, model ID).
 - Provider connectivity check using the `/models` endpoint.
 - Model discovery and selectable model IDs.
 - AI script generation through `/chat/completions`.
 - On-device media picker for video, audio, and image files.
-- Editable subtitle text draft derived from the generated script.
-- Android system Text-to-Speech preview.
-- API keys are held in memory only and are not written to preferences.
+- Editable subtitle text and SRT export. SRT timing is estimated from text length; it is not speech-aligned.
+- Android system Text-to-Speech preview and WAV narration export (English voice depends on installed Android TTS voice data).
+- GitHub Actions cloud-render dispatch from the Android app.
+- Latest GitHub Actions render status check and link to the workflow run.
+- Cloud FFmpeg options for 9:16 / 16:9 / 1:1 output, watermark, optional voiceover audio, optional SRT subtitle burn-in, and start/end trimming.
+- API keys and GitHub token are kept in memory only and are not written to preferences.
 
-The API provider must support the OpenAI-compatible `/models` and `/chat/completions` endpoints. Model availability, pricing, free quotas, and rate limits are controlled by each provider.
+The AI provider must support the OpenAI-compatible `/models` and `/chat/completions` endpoints. Model availability, pricing, free quotas, and rate limits are controlled by each provider.
 
-## Not yet implemented in the Android app
+## Cloud render workflow
 
-These features are still required before calling this a complete v1.0.0 release:
-- Direct upload of selected media to a cloud renderer.
-- GitHub Actions workflow dispatch, job status polling, and in-app artifact download.
-- Colab job hand-off from inside the app.
-- Generated MP3/WAV voice export.
-- Timed SRT/VTT subtitle generation and subtitle burn-in.
-- A full timeline editor, transitions, overlays, and final MP4 export workflow.
-- End-to-end tests on physical Android 10 / ARMv7 hardware.
+Open the app's **Render** tab and provide:
+- A direct HTTPS download URL for the source MP4.
+- Optional direct HTTPS URL for an MP3/WAV voiceover.
+- Optional direct HTTPS URL for an SRT subtitle file.
+- Optional trim start/end values in seconds.
+- A GitHub fine-grained personal access token limited to this repository with **Actions: Read and write** and **Metadata: Read** permissions.
+- Output aspect ratio.
 
-Do not treat the current development APK as the finished v1.0.0 release.
+Tap **Start Cloud Render**, then **Check latest render job**. When the job finishes, tap **Open GitHub job / download MP4 artifact**. Download the MP4 artifact from the run page; GitHub stores the artifact in a ZIP archive.
 
-## Cloud rendering routes
+The source media must already be hosted at a direct downloadable URL. A file selected from the phone's local storage is not automatically uploaded to GitHub or a hosting provider. Do not paste or share your GitHub token with anyone. The app holds it in memory only; closing/restarting the app clears it.
 
-### GitHub Actions CPU + FFmpeg
+The renderer uses GitHub-hosted CPU FFmpeg. GPU is not guaranteed. GitHub Actions minutes, artifact retention, and repository limits apply. The artifact retention period is three days.
 
-Workflow: **Actions → Cloud Video Render (CPU) → Run workflow**.
-
-Inputs:
-- A direct downloadable MP4 URL (not a normal watch-page URL).
-- Aspect ratio: 9:16, 16:9, or 1:1.
-- Optional watermark (default: Powered by I KO KO).
-
-The workflow renders an MP4 using FFmpeg/libx264 and uploads it as an artifact. The runner is CPU-based; a GPU is not guaranteed. Free Actions minutes and artifact retention/usage limits apply.
-
-### Google Colab
+## Google Colab
 
 Open `cloud-renderer/GIKOKO_Colab_Renderer.ipynb` in Google Colab. Upload a source video, select the aspect ratio and watermark, run the cells, and download the rendered MP4. A free T4 GPU is not guaranteed; the notebook falls back to CPU encoding.
+
+## Not yet implemented
+
+These features are still required before calling this a complete v1.0.0 release:
+- Automatic upload of selected phone media to cloud storage.
+- In-app artifact ZIP download and extraction (the current app opens the GitHub Actions run page).
+- Full multitrack timeline editor with drag/drop clip arrangement, transitions, and overlays.
+- Precise speech-aligned subtitles and subtitle timing editor.
+- Direct local MP4 export without a cloud render.
+- MP3 voice export; current on-device TTS export is WAV.
+- End-to-end tests on physical Android 10 / ARMv7 hardware.
+- Production release signing and release APK validation.
+
+Do not treat the current development APK as a finished production v1.0.0 release.
 
 ## Build APK
 
