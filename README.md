@@ -30,7 +30,7 @@ Open the app's **Render** tab and provide:
 - A GitHub fine-grained personal access token limited to this repository with **Actions: Read and write** and **Metadata: Read** permissions.
 - Output aspect ratio.
 
-Tap **Start Cloud Render**, then **Check latest render job**. When the job finishes, tap **Check latest render job**, then use **Download MP4 into phone storage** to save the MP4 directly through Android's file picker. The app retrieves the GitHub artifact ZIP and extracts the MP4.
+Tap **Start Cloud Render**, then **Check latest render job**. When the job finishes, use **Download MP4 into phone storage** to save the MP4 directly through Android's file picker. The app retrieves the GitHub artifact ZIP and extracts the MP4.
 
 The source media must already be hosted at a direct downloadable URL. A file selected from the phone's local storage is not automatically uploaded to GitHub or a hosting provider. Do not paste or share your GitHub token with anyone. The app holds it in memory only; closing/restarting the app clears it.
 
