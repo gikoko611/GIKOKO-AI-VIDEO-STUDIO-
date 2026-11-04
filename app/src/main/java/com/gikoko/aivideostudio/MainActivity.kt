@@ -163,6 +163,19 @@ private fun StudioApp() {
         }
     }
 
+    val mp3Exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/mpeg")) { uri ->
+        if (uri != null) {
+            if (githubToken.isBlank() || renderRunId == 0L) status = "Check a successful render job first and enter the GitHub token."
+            else {
+                renderBusy = true; status = "Downloading rendered MP3 audio…"
+                runTask({ downloadCloudAudioArtifact(githubToken, renderRunId, uri, context) }) { result, error ->
+                    renderBusy = false
+                    status = error?.let { "MP3 download failed: $it" } ?: (result as? String ?: "MP3 downloaded.")
+                }
+            }
+        }
+    }
+
     val mp4Exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("video/mp4")) { uri ->
         if (uri != null) {
             if (githubToken.isBlank() || renderRunId == 0L) status = "Check a render job first and enter the GitHub token."
@@ -201,7 +214,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.8.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.9.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -412,6 +425,8 @@ private fun StudioApp() {
                                 }
                             }
                         }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text("Check latest render job") }
+                        OutlinedButton(onClick = { mp3Exporter.launch("GIKOKO_audio.mp3") }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text("Export rendered audio as MP3") }
+                        Text("MP3 is generated from the completed cloud-rendered video. Timeline VOICE tracks are mixed during render.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                         Text(renderRunStatus, color = Emerald)
                         if (renderRunUrl.isNotBlank()) {
                             OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(renderRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open GitHub job") }
@@ -666,6 +681,39 @@ private fun srtTime(milliseconds: Long): String {
     return "%02d:%02d:%02d,%03d".format(hours, minutes, seconds, millis)
 }
 
+
+private fun downloadCloudAudioArtifact(token: String, runId: Long, targetUri: Uri, context: android.content.Context): String {
+    require(token.isNotBlank()) { "GitHub token is required." }
+    require(runId > 0L) { "Check a render job before downloading." }
+    val response = githubRequest(token, "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/runs/" + runId + "/artifacts", "GET", null)
+    val artifacts = response.optJSONArray("artifacts") ?: throw IllegalStateException("No render artifact found.")
+    val artifact = (0 until artifacts.length()).map { artifacts.getJSONObject(it) }.firstOrNull { !it.optBoolean("expired", false) }
+        ?: throw IllegalStateException("The render artifact has expired.")
+    val url = artifact.optString("archive_download_url")
+    require(url.startsWith("https://api.github.com/")) { "Invalid artifact URL." }
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.setRequestProperty("Authorization", "Bearer " + token)
+    connection.instanceFollowRedirects = false
+    val code = connection.responseCode
+    val redirect = connection.getHeaderField("Location")
+    connection.disconnect()
+    require(code in 300..399 && !redirect.isNullOrBlank()) { "Artifact download did not return a redirect." }
+    val zipConnection = URL(redirect).openConnection() as HttpURLConnection
+    try {
+        ZipInputStream(zipConnection.inputStream).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && entry.name.lowercase().endsWith(".mp3")) {
+                    context.contentResolver.openOutputStream(targetUri)?.use { zip.copyTo(it) }
+                        ?: throw IllegalStateException("Could not open phone storage destination.")
+                    return "Rendered MP3 saved to the selected phone location."
+                }
+                zip.closeEntry(); entry = zip.nextEntry
+            }
+        }
+    } finally { zipConnection.disconnect() }
+    throw IllegalStateException("The artifact ZIP did not contain an MP3 file.")
+}
 
 private fun downloadCloudArtifact(token: String, runId: Long, targetUri: Uri, context: android.content.Context): String {
     require(token.isNotBlank()) { "GitHub token is required." }
