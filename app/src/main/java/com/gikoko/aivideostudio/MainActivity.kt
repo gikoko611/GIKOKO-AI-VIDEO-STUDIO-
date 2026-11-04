@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
                     OfflineStudioApp()
                     FilledTonalButton(
                         onClick = { showHelp = true },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 8.dp),
                         contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp)
                     ) { Text("❔ Help") }
                     if (showHelp) {
