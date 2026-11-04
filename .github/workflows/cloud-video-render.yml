@@ -105,7 +105,7 @@ jobs:
                   if not has_audio:
                       cmd += ["-f", "lavfi", "-t", str(duration), "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
                   cmd += ["-t", str(duration), "-map", "0:v:0"]
-                  cmd += ["-map", "0:a:0" if has_audio else "1:a:0", "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest", f"segment-{index:03}.mp4"]
+                  cmd += ["-map", "0:a:0" if has_audio else "1:a:0", "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-af", "apad", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest", f"segment-{index:03}.mp4"]
                   subprocess.run(cmd, check=True)
                   concat.write(f"file 'segment-{index:03}.mp4'\n")
               concat.close()
