@@ -110,7 +110,7 @@ jobs:
                   text = seg.text.strip()
                   if not text: continue
                   count += 1
-                  out.write(f"{count}\\n{stamp(seg.start)} --> {stamp(seg.end)}\\n{text}\\n\\n")
+                  out.write(f"{count}\n{stamp(seg.start)} --> {stamp(seg.end)}\n{text}\n\n")
           if count == 0: raise SystemExit("Whisper found no speech; no subtitle file was produced.")
           print(f"Detected language: {info.language}; subtitle segments: {count}")
           PY
