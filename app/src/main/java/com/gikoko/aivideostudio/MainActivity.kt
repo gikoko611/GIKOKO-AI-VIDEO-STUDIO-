@@ -40,6 +40,15 @@ private val Emerald = Color(0xFF00C389)
 private val Ink = Color(0xFF101713)
 private val Panel = Color(0xFF1B2721)
 
+private data class TimelineClip(
+    val id: Int,
+    val track: String,
+    val title: String,
+    val startSeconds: String,
+    val durationSeconds: String,
+    val source: String
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +85,8 @@ private fun StudioApp() {
     var status by remember { mutableStateOf("Ready. Configure an AI provider to begin.") }
     var busy by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    val timelineClips = remember { mutableStateListOf<TimelineClip>() }
+    var nextTimelineClipId by remember { mutableIntStateOf(1) }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
     var discoveredModels by remember { mutableStateOf(listOf<String>()) }
     var freeOnly by remember { mutableStateOf(true) }
@@ -256,6 +267,52 @@ private fun StudioApp() {
                         Text("WAV export uses the Android system English TTS voice. Keep the app open while synthesis finishes.")
                     }
                     3 -> {
+                        Text("MULTI-TRACK TIMELINE", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("Arrange your project into separate Video, Voice, Subtitle and Overlay lanes. This first timeline version stores editable clip timing and source references; cloud rendering is not yet connected to these timeline positions.", color = Color.LightGray)
+                        val trackNames = listOf("VIDEO", "VOICE", "SUBTITLE", "OVERLAY")
+                        trackNames.forEach { trackName ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Panel), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(trackName, color = Gold, fontWeight = FontWeight.Bold)
+                                    val trackClips = timelineClips.filter { it.track == trackName }
+                                    if (trackClips.isEmpty()) Text("No clips on this track", color = Color.Gray)
+                                    trackClips.forEach { clip ->
+                                        val clipIndex = timelineClips.indexOfFirst { it.id == clip.id }
+                                        if (clipIndex >= 0) {
+                                            OutlinedTextField(value = clip.title, onValueChange = { timelineClips[clipIndex] = timelineClips[clipIndex].copy(title = it) }, label = { Text("Clip name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedTextField(value = clip.startSeconds, onValueChange = { timelineClips[clipIndex] = timelineClips[clipIndex].copy(startSeconds = it.filter { ch -> ch.isDigit() }.take(6)) }, label = { Text("Start (sec)") }, modifier = Modifier.weight(1f), singleLine = true)
+                                                OutlinedTextField(value = clip.durationSeconds, onValueChange = { timelineClips[clipIndex] = timelineClips[clipIndex].copy(durationSeconds = it.filter { ch -> ch.isDigit() }.take(6)) }, label = { Text("Length (sec)") }, modifier = Modifier.weight(1f), singleLine = true)
+                                            }
+                                            Text("Source: ${clip.source}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                                            TextButton(onClick = { timelineClips.removeAll { it.id == clip.id } }) { Text("Remove clip", color = Color(0xFFFF8A80)) }
+                                        }
+                                    }
+                                    when (trackName) {
+                                        "VIDEO" -> OutlinedButton(onClick = {
+                                            if (mediaUri == null) status = "Import a video or image in Media first."
+                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Main media", "0", "30", mediaUri.toString())); status = "Media clip added to Video track." }
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add selected media") }
+                                        "VOICE" -> OutlinedButton(onClick = {
+                                            if (script.isBlank() && voiceoverUrl.isBlank()) status = "Create a script or add a voiceover URL in Render first."
+                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Narration", "0", "30", if (voiceoverUrl.isNotBlank()) voiceoverUrl else "Android TTS from current script")); status = "Voice clip reference added." }
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add narration reference") }
+                                        "SUBTITLE" -> OutlinedButton(onClick = {
+                                            if (subtitles.isBlank()) status = "Create subtitle text in Create first."
+                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Subtitle captions", "0", "30", "Editable subtitle text")); status = "Subtitle clip added." }
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add subtitles") }
+                                        "OVERLAY" -> OutlinedButton(onClick = {
+                                            timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Powered by I KO KO", "0", "30", "Text watermark overlay")); status = "Watermark overlay added."
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add watermark overlay") }
+                                    }
+                                }
+                            }
+                        }
+                        val timelineEnd = timelineClips.maxOfOrNull { (it.startSeconds.toLongOrNull() ?: 0L) + (it.durationSeconds.toLongOrNull() ?: 0L) } ?: 0L
+                        Text("Clips: ${timelineClips.size}   •   Timeline end: ${timelineEnd}s", color = Emerald, fontWeight = FontWeight.Bold)
+                        OutlinedButton(onClick = { timelineClips.clear(); status = "Timeline cleared." }, modifier = Modifier.fillMaxWidth(), enabled = timelineClips.isNotEmpty()) { Text("Clear timeline") }
+                    }
+                    4 -> {
                         Text("CLOUD VIDEO RENDER", color = Gold, fontWeight = FontWeight.Bold)
                         Text("Send a publicly downloadable MP4 URL to the GitHub Actions FFmpeg renderer. A phone-only local file cannot be reached by GitHub until uploaded to a file host that provides a direct download URL.", color = Color.LightGray)
                         OutlinedTextField(value = sourceVideoUrl, onValueChange = { sourceVideoUrl = it }, label = { Text("Direct MP4 download URL (HTTPS)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
