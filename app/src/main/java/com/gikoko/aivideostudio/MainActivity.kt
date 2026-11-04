@@ -73,6 +73,10 @@ private fun StudioApp() {
     var ttsReady by remember { mutableStateOf(false) }
     var githubToken by remember { mutableStateOf("") }
     var sourceVideoUrl by remember { mutableStateOf("") }
+    var voiceoverUrl by remember { mutableStateOf("") }
+    var subtitleUrl by remember { mutableStateOf("") }
+    var trimStart by remember { mutableStateOf("0") }
+    var trimEnd by remember { mutableStateOf("") }
     var aspectRatio by remember { mutableStateOf("9:16") }
     var renderRunUrl by remember { mutableStateOf("") }
     var renderRunStatus by remember { mutableStateOf("No render job checked yet.") }
@@ -169,6 +173,10 @@ private fun StudioApp() {
                         Text("CLOUD VIDEO RENDER", color = Gold, fontWeight = FontWeight.Bold)
                         Text("Send a publicly downloadable MP4 URL to the GitHub Actions FFmpeg renderer. A phone-only local file cannot be reached by GitHub until uploaded to a file host that provides a direct download URL.", color = Color.LightGray)
                         OutlinedTextField(value = sourceVideoUrl, onValueChange = { sourceVideoUrl = it }, label = { Text("Direct MP4 download URL (HTTPS)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        OutlinedTextField(value = voiceoverUrl, onValueChange = { voiceoverUrl = it }, label = { Text("Optional voiceover MP3/WAV URL") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Optional SRT subtitle URL") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        OutlinedTextField(value = trimStart, onValueChange = { trimStart = it }, label = { Text("Trim start (seconds, default 0)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(value = trimEnd, onValueChange = { trimEnd = it }, label = { Text("Trim end (seconds, optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         OutlinedTextField(value = githubToken, onValueChange = { githubToken = it }, label = { Text("GitHub token — session only") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         OutlinedTextField(value = aspectRatio, onValueChange = { aspectRatio = it }, label = { Text("Aspect ratio: 9:16 / 16:9 / 1:1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Button(onClick = {
@@ -177,7 +185,7 @@ private fun StudioApp() {
                             else if (aspectRatio !in listOf("9:16", "16:9", "1:1")) status = "Aspect ratio must be 9:16, 16:9, or 1:1."
                             else {
                                 renderBusy = true; status = "Submitting GitHub render job…"
-                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio) }) { _, error ->
+                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio, voiceoverUrl, subtitleUrl, trimStart, trimEnd) }) { _, error ->
                                     renderBusy = false
                                     status = error?.let { "Cloud render dispatch failed: $it" } ?: "Render job submitted. Tap Check latest job to view progress."
                                 }
@@ -282,7 +290,7 @@ private fun requestJson(endpoint: String, key: String, method: String, body: Str
 private fun String?.ifNullOrEmpty(fallback: String): String =
     if (this.isNullOrBlank()) fallback else this
 
-private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String): String {
+private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String): String {
     require(token.isNotBlank()) { "GitHub token is required." }
     require(videoUrl.startsWith("https://")) { "Only HTTPS source URLs are accepted." }
     require(ratio in listOf("9:16", "16:9", "1:1")) { "Unsupported aspect ratio." }
@@ -291,7 +299,11 @@ private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String):
         .put("inputs", JSONObject()
             .put("video_url", videoUrl)
             .put("aspect_ratio", ratio)
-            .put("watermark", "Powered by I KO KO"))
+            .put("watermark", "Powered by I KO KO")
+            .put("voiceover_url", voiceoverUrl.trim())
+            .put("subtitle_url", subtitleUrl.trim())
+            .put("trim_start", trimStart.trim().ifBlank { "0" })
+            .put("trim_end", trimEnd.trim()))
     githubRequest(token, "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/cloud-video-render.yml/dispatches", "POST", body.toString())
     return "Workflow dispatch accepted."
 }
