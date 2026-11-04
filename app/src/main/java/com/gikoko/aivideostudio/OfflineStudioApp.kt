@@ -299,7 +299,7 @@ private fun readDurationMs(context: Context, uri: Uri): Long {
     }
 }
 
-private data class StudioAudioSettings(
+internal data class StudioAudioSettings(
     val masterGain: Float,
     val lowDb: Float,
     val midDb: Float,
