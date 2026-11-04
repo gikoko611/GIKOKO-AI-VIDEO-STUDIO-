@@ -214,7 +214,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.9.1 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v1.0.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
