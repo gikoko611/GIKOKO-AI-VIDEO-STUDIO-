@@ -66,6 +66,9 @@ private fun StudioApp() {
 
     var baseUrl by remember { mutableStateOf(prefs.getString("base_url", "https://api.openai.com/v1") ?: "") }
     var model by remember { mutableStateOf(prefs.getString("model", "gpt-4o-mini") ?: "") }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var duration by remember { mutableStateOf("5 min") }
+    var customDuration by remember { mutableStateOf("5") }
     var apiKey by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf("Create an engaging short video about an amazing fact from Myanmar history.") }
     var script by remember { mutableStateOf("") }
@@ -195,13 +198,27 @@ private fun StudioApp() {
                 when (selectedTab) {
                     0 -> {
                         Text("AI SCRIPT GENERATOR", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("VIDEO DURATION", color = Gold, fontWeight = FontWeight.Bold)
+                        var durationMenuExpanded by remember { mutableStateOf(false) }
+                        val durationOptions = listOf("30 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min", "Custom")
+                        Box {
+                            OutlinedButton(onClick = { durationMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Duration: $duration  ▾") }
+                            DropdownMenu(expanded = durationMenuExpanded, onDismissRequest = { durationMenuExpanded = false }) {
+                                durationOptions.forEach { option ->
+                                    DropdownMenuItem(text = { Text(option) }, onClick = { duration = option; durationMenuExpanded = false })
+                                }
+                            }
+                        }
+                        if (duration == "Custom") {
+                            OutlinedTextField(value = customDuration, onValueChange = { customDuration = it.filter(Char::isDigit).take(3) }, label = { Text("Custom duration (minutes, max 180)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        }
                         OutlinedTextField(value = prompt, onValueChange = { prompt = it }, label = { Text("Video idea / prompt") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                         Button(onClick = {
                             if (apiKey.isBlank()) status = "Add your API key in Settings first."
                             else if (model.isBlank()) status = "Enter a model ID first."
                             else {
                                 busy = true; status = "Generating script…"
-                                runTask({ callChat(baseUrl, apiKey, model, "Write a concise, engaging video script with scene directions and narration. Return plain text. User idea: $prompt") }) { result, error ->
+                                runTask({ callChat(baseUrl, apiKey, model, "Create a video script designed for $duration ${if (duration == "Custom") customDuration + " minutes" else ""}. Include scene directions, narration, and pacing appropriate to the selected duration. Return plain text. User idea: $prompt") }) { result, error ->
                                     busy = false
                                     if (error != null) status = "Generation failed: $error" else {
                                         script = result as? String ?: ""
@@ -287,26 +304,45 @@ private fun StudioApp() {
                         Text("AI PROVIDER SETTINGS", color = Gold, fontWeight = FontWeight.Bold)
                         OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key (session only)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Button(onClick = {
-                            prefs.edit().putString("base_url", baseUrl.trim()).putString("model", model.trim()).apply()
-                            status = "Provider URL and model saved. API key remains in memory only."
-                        }, modifier = Modifier.fillMaxWidth()) { Text("Save provider settings") }
+                        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Selected Model ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true, readOnly = true)
                         OutlinedButton(onClick = {
-                            if (apiKey.isBlank()) status = "Enter API key first."
-                            else { busy = true; status = "Testing provider…"; runTask({ fetchModels(baseUrl, apiKey).joinToString(", ").ifBlank { "Connected; provider returned no model list." } }) { result, error -> busy = false; status = error?.let { "Connection failed: $it" } ?: (result as? String ?: "Connected") } }
-                        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
-                        OutlinedButton(onClick = {
-                            if (apiKey.isBlank()) status = "Enter API key first."
-                            else { busy = true; status = "Discovering models…"; runTask({ fetchModels(baseUrl, apiKey) }) { result, error ->
-                                busy = false
-                                if (error != null) status = "Model discovery failed: $error"
-                                else { discoveredModels = (result as? List<*>)?.filterIsInstance<String>() ?: emptyList(); status = "Found ${discoveredModels.size} models." }
-                            } }
-                        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Discover models") }
-                        discoveredModels.take(30).forEach { item ->
-                            TextButton(onClick = { model = item; status = "Selected model: $item" }) { Text(item, color = Emerald) }
+                            if (baseUrl.isBlank()) status = "Enter the provider Base URL first."
+                            else if (apiKey.isBlank()) status = "Enter API Key first."
+                            else {
+                                busy = true; status = "Connecting and loading model list…"
+                                runTask({ fetchModels(baseUrl, apiKey) }) { result, error ->
+                                    busy = false
+                                    if (error != null) status = "Connection/model loading failed: $error"
+                                    else {
+                                        discoveredModels = (result as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                                        if (discoveredModels.isNotEmpty()) {
+                                            if (model !in discoveredModels) model = discoveredModels.first()
+                                            modelMenuExpanded = true
+                                            status = "Connected. Loaded ${discoveredModels.size} models. Choose one below."
+                                        } else status = "Connected, but provider returned no models in the OpenAI-compatible /models format."
+                                    }
+                                }
+                            }
+                        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Connecting…" else "Run: Connect & Auto-load Models") }
+                        Box {
+                            OutlinedButton(onClick = { modelMenuExpanded = true }, enabled = discoveredModels.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(if (model.isBlank()) "Select a model" else "Choose Model: $model") }
+                            DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                                discoveredModels.forEach { item ->
+                                    DropdownMenuItem(text = { Text(item) }, onClick = {
+                                        model = item; modelMenuExpanded = false
+                                        prefs.edit().putString("base_url", baseUrl.trim()).putString("model", model.trim()).apply()
+                                        status = "Selected model: $item"
+                                    })
+                                }
+                            }
                         }
+                        Button(onClick = {
+                            if (baseUrl.isBlank() || model.isBlank()) status = "Enter provider URL and select a model first."
+                            else {
+                                prefs.edit().putString("base_url", baseUrl.trim()).putString("model", model.trim()).apply()
+                                status = "Provider URL and model saved. API key remains in memory only."
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Save provider settings") }
                         Text("API key is not saved to disk. Free model availability and quotas depend on your provider.", color = Gold, style = MaterialTheme.typography.bodySmall)
                     }
                 }
