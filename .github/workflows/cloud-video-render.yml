@@ -223,12 +223,14 @@ jobs:
       - name: Mix timeline audio and apply image overlays
         env:
           TIMELINE_JSON: ${{ inputs.timeline_json }}
+          VOICEOVER_URL: ${{ inputs.voiceover_url }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, subprocess, urllib.request
           clips = json.loads(os.environ.get("TIMELINE_JSON", "[]") or "[]")
-          audio = [c for c in clips if c.get("track") == "VOICE" and str(c.get("source", "")).startswith("https://")]
+          primary_voice = os.environ.get("VOICEOVER_URL", "").strip()
+          audio = [c for c in clips if c.get("track") == "VOICE" and str(c.get("source", "")).startswith("https://") and c.get("source") != primary_voice]
           images = [c for c in clips if c.get("track") == "OVERLAY" and str(c.get("source", "")).startswith("https://")]
           args = ["ffmpeg", "-y", "-i", "output.mp4"]
           filters = []
@@ -236,7 +238,9 @@ jobs:
           for i, clip in enumerate(audio):
               path = f"timeline-audio-{i:03}.bin"
               urllib.request.urlretrieve(clip["source"], path)
-              args += ["-itsoffset", str(max(0, float(clip.get("start", 0) or 0))), "-i", path]
+              start = max(0, float(clip.get("start", 0) or 0))
+              duration = max(0.1, float(clip.get("duration", 0) or 0))
+              args += ["-itsoffset", str(start), "-t", str(duration), "-i", path]
               label = f"a{i}"
               filters.append(f"[{i+1}:a:0]aresample=48000,volume=1.0[{label}]")
               audio_labels.append(f"[{label}]")
@@ -253,7 +257,7 @@ jobs:
               filters.append(f"[{video_label}][{input_index}:v]overlay=W-w-24:H-h-24:enable='between(t,{start},{end})'[{out_label}]")
               video_label = out_label
           if audio:
-              filters.append("".join(audio_labels) + f"amix=inputs={len(audio)}:duration=longest:dropout_transition=2[aout]")
+              filters.append("".join(audio_labels) + f"amix=inputs={len(audio)}:duration=longest:dropout_transition=2,apad[aout]")
           if filters:
               args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]" if images else "0:v:0"]
               args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] if audio else ["-map", "0:a?"]
@@ -268,7 +272,12 @@ jobs:
       - name: Export MP3 audio
         run: |
           set -euo pipefail
-          ffmpeg -y -i output.mp4 -vn -c:a libmp3lame -b:a 192k -ar 44100 output.mp3
+          if ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 output.mp4 | grep -q audio; then
+            ffmpeg -y -i output.mp4 -vn -c:a libmp3lame -b:a 192k -ar 44100 output.mp3
+          else
+            DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 output.mp4)
+            ffmpeg -y -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t "$DURATION" -c:a libmp3lame -b:a 192k output.mp3
+          fi
           test -s output.mp3
 
       - name: Upload rendered MP4
