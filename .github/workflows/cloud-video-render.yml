@@ -259,7 +259,7 @@ jobs:
               start_time = max(0, float(clip.get("start", 0) or 0))
               duration = max(0.1, float(clip.get("duration", 30) or 30))
               finish = start_time + duration
-              filters.append(f"[{video_label}][{input_index}:v]scale2ref=w=iw*0.25:h=ow/mdar[ov{i}][base{i}];[base{i}][ov{i}]overlay=W-w-24:H-h-24:enable='between(t,{start_time},{finish})'[{out_label}]")
+              filters.append(f"[{input_index}:v][{video_label}]scale2ref=w=main_w*0.25:h=main_h*0.25[ov{i}][base{i}];[base{i}][ov{i}]overlay=W-w-24:H-h-24:enable='between(t,{start_time},{finish})'[{out_label}]")
               video_label = out_label
           filters.append("".join(audio_labels) + f"amix=inputs={len(audio_labels)}:duration=first:dropout_transition=2[aout]")
           args += ["-filter_complex", ";".join(filters), "-map", f"[{video_label}]", "-map", "[aout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "output-mixed.mp4"]
