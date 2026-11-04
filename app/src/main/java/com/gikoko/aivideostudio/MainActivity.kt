@@ -374,10 +374,11 @@ private fun StudioApp() {
                         OutlinedTextField(value = aspectRatio, onValueChange = { aspectRatio = it }, label = { Text("Aspect ratio: 9:16 / 16:9 / 1:1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Button(onClick = {
                             if (githubToken.isBlank()) status = "Enter a GitHub token with Actions read/write permission."
-                            else if (!sourceVideoUrl.startsWith("https://")) status = "Enter a direct HTTPS MP4 download URL."
+                            else if (!sourceVideoUrl.startsWith("https://") && timelineClips.none { it.track == "VIDEO" && it.source.startsWith("https://") }) status = "Enter a direct HTTPS MP4 URL or add an uploaded VIDEO clip to the Timeline."
                             else if (aspectRatio !in listOf("9:16", "16:9", "1:1")) status = "Aspect ratio must be 9:16, 16:9, or 1:1."
                             else {
                                 renderBusy = true; status = "Submitting GitHub render job…"
+                                val renderSourceUrl = sourceVideoUrl.takeIf { it.startsWith("https://") } ?: timelineClips.first { it.track == "VIDEO" && it.source.startsWith("https://") }.source
                                 val timelinePayload = JSONArray().apply {
                                     timelineClips.forEach { clip ->
                                         put(JSONObject()
@@ -388,7 +389,7 @@ private fun StudioApp() {
                                             .put("source", clip.source))
                                     }
                                 }.toString()
-                                runTask({ dispatchCloudRender(githubToken, sourceVideoUrl, aspectRatio, voiceoverUrl, subtitleUrl, trimStart, trimEnd, autoSubtitles, timelinePayload) }) { _, error ->
+                                runTask({ dispatchCloudRender(githubToken, renderSourceUrl, aspectRatio, voiceoverUrl, subtitleUrl, trimStart, trimEnd, autoSubtitles, timelinePayload) }) { _, error ->
                                     renderBusy = false
                                     status = error?.let { "Cloud render dispatch failed: $it" } ?: "Render job submitted. Tap Check latest job to view progress."
                                 }
