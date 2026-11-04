@@ -3,7 +3,10 @@ package com.gikoko.aivideostudio
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,10 +27,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 
 private val Gold = Color(0xFFFFC857)
 private val Emerald = Color(0xFF00C389)
@@ -71,6 +76,8 @@ private fun StudioApp() {
     var discoveredModels by remember { mutableStateOf(listOf<String>()) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    val voiceExportTarget = remember { AtomicReference<Uri?>(null) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var githubToken by remember { mutableStateOf("") }
     var sourceVideoUrl by remember { mutableStateOf("") }
     var voiceoverUrl by remember { mutableStateOf("") }
@@ -85,10 +92,54 @@ private fun StudioApp() {
     DisposableEffect(Unit) {
         val engine = TextToSpeech(context) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
-            if (result == TextToSpeech.SUCCESS) tts?.language = Locale.US
+            if (result == TextToSpeech.SUCCESS) engine.language = Locale.US
         }
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == "gikoko-voice-export") {
+                    val target = voiceExportTarget.getAndSet(null)
+                    if (target != null) {
+                        Thread {
+                            try {
+                                val audioFile = File(context.cacheDir, "gikoko-voice.wav")
+                                context.contentResolver.openOutputStream(target)?.use { output ->
+                                    audioFile.inputStream().use { input -> input.copyTo(output) }
+                                } ?: throw IllegalStateException("Could not open destination file.")
+                                mainHandler.post { status = "WAV narration exported successfully." }
+                            } catch (error: Exception) {
+                                mainHandler.post { status = "WAV export failed: " + (error.message ?: "unknown error") }
+                            }
+                        }.start()
+                    }
+                }
+            }
+            override fun onError(utteranceId: String?) {
+                if (utteranceId == "gikoko-voice-export") {
+                    voiceExportTarget.set(null)
+                    mainHandler.post { status = "WAV synthesis failed. Check the installed English TTS voice." }
+                }
+            }
+        })
         tts = engine
         onDispose { engine.stop(); engine.shutdown() }
+    }
+
+    val voiceExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav")) { uri ->
+        if (uri != null) {
+            if (script.isBlank()) status = "Enter or generate a script first."
+            else {
+                val audioFile = File(context.cacheDir, "gikoko-voice.wav")
+                audioFile.delete()
+                voiceExportTarget.set(uri)
+                val result = tts?.synthesizeToFile(script.take(9000), Bundle(), audioFile, "gikoko-voice-export")
+                    ?: TextToSpeech.ERROR
+                if (result != TextToSpeech.SUCCESS) {
+                    voiceExportTarget.set(null)
+                    status = "Could not start WAV synthesis. Check Android English TTS settings."
+                } else status = "Creating WAV narration… keep the app open until export completes."
+            }
+        }
     }
 
     val subtitleExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
@@ -167,7 +218,8 @@ private fun StudioApp() {
                             else status = "System TTS is not ready. Check Android Text-to-Speech settings."
                         }, modifier = Modifier.fillMaxWidth()) { Text("Play voice preview") }
                         OutlinedButton(onClick = { tts?.stop(); status = "Voice stopped." }, modifier = Modifier.fillMaxWidth()) { Text("Stop voice") }
-                        Text("This is device TTS preview, not MP3 export.")
+                        OutlinedButton(onClick = { if (script.isBlank()) status = "Generate or enter a script first." else voiceExporter.launch("GIKOKO_narration.wav") }, modifier = Modifier.fillMaxWidth()) { Text("Export narration as WAV") }
+                        Text("WAV export uses the Android system English TTS voice. Keep the app open while synthesis finishes.")
                     }
                     3 -> {
                         Text("CLOUD VIDEO RENDER", color = Gold, fontWeight = FontWeight.Bold)
