@@ -36,6 +36,17 @@ on:
         required: false
         type: string
         default: ""
+      auto_subtitles:
+        description: "Generate timestamped subtitles with Whisper when no SRT URL is supplied"
+        required: false
+        type: boolean
+        default: true
+      subtitle_language:
+        description: "Whisper language (auto, Burmese, or English)"
+        required: false
+        type: choice
+        options: ["auto", "my", "en"]
+        default: "auto"
 
 permissions:
   contents: read
@@ -69,6 +80,41 @@ jobs:
             test -s subtitles.srt
           fi
           ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
+
+      - name: Generate speech-aligned subtitles with Whisper
+        if: ${{ inputs.auto_subtitles == true && inputs.subtitle_url == '' }}
+        env:
+          SUBTITLE_LANGUAGE: ${{ inputs.subtitle_language }}
+        run: |
+          set -euo pipefail
+          if [[ -s voiceover.audio ]]; then AUDIO_INPUT="voiceover.audio"; else
+            ffmpeg -y -i input.mp4 -vn -ac 1 -ar 16000 transcription.wav
+            AUDIO_INPUT="transcription.wav"
+          fi
+          python -m pip install --disable-pip-version-check faster-whisper==1.1.1
+          AUDIO_INPUT="$AUDIO_INPUT" python - <<'PY'
+          import os
+          from faster_whisper import WhisperModel
+          language = os.environ.get("SUBTITLE_LANGUAGE", "auto")
+          model = WhisperModel("small", device="cpu", compute_type="int8")
+          kwargs = {"beam_size": 3, "vad_filter": True}
+          if language != "auto": kwargs["language"] = language
+          segments, info = model.transcribe(os.environ["AUDIO_INPUT"], **kwargs)
+          def stamp(seconds):
+              ms = max(0, round(seconds * 1000))
+              h, ms = divmod(ms, 3600000); m, ms = divmod(ms, 60000); s, ms = divmod(ms, 1000)
+              return f"{h:02}:{m:02}:{s:02},{ms:03}"
+          count = 0
+          with open("subtitles.srt", "w", encoding="utf-8") as out:
+              for seg in segments:
+                  text = seg.text.strip()
+                  if not text: continue
+                  count += 1
+                  out.write(f"{count}\\n{stamp(seg.start)} --> {stamp(seg.end)}\\n{text}\\n\\n")
+          if count == 0: raise SystemExit("Whisper found no speech; no subtitle file was produced.")
+          print(f"Detected language: {info.language}; subtitle segments: {count}")
+          PY
+          test -s subtitles.srt
 
       - name: Render MP4
         env:
