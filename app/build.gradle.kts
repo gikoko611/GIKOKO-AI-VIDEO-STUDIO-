@@ -12,8 +12,8 @@ android {
         applicationId = "com.gikoko.aivideostudio"
         minSdk = 29
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.0"
+        versionCode = 11
+        versionName = "0.0.1"
         ndk {
             abiFilters += listOf("armeabi-v7a")
         }
