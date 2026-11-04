@@ -66,6 +66,28 @@ This is a real hosted video-generation API, not local rendering. fal.ai's Wan 3.
 
 The app does not claim that text-to-video generation is free or unlimited. The first generation should be a short test clip (5 seconds, 480p) so the user can confirm the API setup and review the charge before producing longer clips.
 
+## Free GPU Text-to-Video (Wan2.1)
+
+The **Create** tab has a **FREE GPU TEXT-TO-VIDEO** section that opens the open-source Wan2.1 T2V-1.3B Google Colab notebook. It copies the current video prompt to the Android clipboard so it can be pasted into the notebook.
+
+Notebook: [GIKOKO_Wan2_1_Free_T2V.ipynb](cloud-renderer/GIKOKO_Wan2_1_Free_T2V.ipynb)
+
+### Free workflow
+
+1. Open the notebook in Google Colab from the Android app.
+2. In Colab, select **Runtime → Change runtime type → T4 GPU** if a free GPU is offered.
+3. Run the notebook cells from top to bottom. The first run downloads the open-source model and can take time.
+4. Paste the copied prompt into the prompt field and generate the short 480p MP4.
+5. Download the MP4, return to the Android app, and choose **Media → Import media**.
+
+### Important limitations
+
+- This notebook uses the Wan-AI/Wan2.1-T2V-1.3B-Diffusers open-source model and does not call fal.ai, does not require FAL_KEY, and does not use a paid inference API.
+- Colab Free does not guarantee GPU availability, T4 access, session duration, or a fixed daily quota. Generation can fail if the runtime disconnects or runs out of GPU memory.
+- The notebook targets short 480p clips (832×480). It does not promise 720p, audio generation, or unlimited video generation.
+- The Android app hands off the prompt and opens Colab; it does not run the model on the Redmi 9A. After the notebook downloads the MP4, import it manually through Media.
+- The existing **OPTIONAL PAID API MODE • WAN 3.0** remains separate. It requires FAL_KEY and may incur charges. Do not use that button for the free workflow.
+
 ## Google Colab
 
 Open `cloud-renderer/GIKOKO_Colab_Renderer.ipynb` in Google Colab. Upload a source video, select the aspect ratio and watermark, run the cells, and download the rendered MP4. A free T4 GPU is not guaranteed; the notebook falls back to CPU encoding.
