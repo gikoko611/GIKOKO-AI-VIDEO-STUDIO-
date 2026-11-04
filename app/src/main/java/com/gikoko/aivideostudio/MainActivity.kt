@@ -2,6 +2,7 @@ package com.gikoko.aivideostudio
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -88,6 +89,8 @@ private fun StudioApp() {
     val timelineClips = remember { mutableStateListOf<TimelineClip>() }
     var nextTimelineClipId by remember { mutableIntStateOf(1) }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
+    var allowPublicUpload by remember { mutableStateOf(false) }
+    var uploadedMediaUrl by remember { mutableStateOf("") }
     var discoveredModels by remember { mutableStateOf(listOf<String>()) }
     var freeOnly by remember { mutableStateOf(true) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
@@ -249,10 +252,46 @@ private fun StudioApp() {
                     }
                     1 -> {
                         Text("MEDIA LIBRARY", color = Gold, fontWeight = FontWeight.Bold)
-                        Text("Choose a video, audio, or image file from your device. The selected file remains on-device; cloud upload is not connected in this build.")
+                        Text("Import a video or audio file from your phone, then optionally upload it to temporary public hosting for Cloud Render.", color = Color.LightGray)
                         Button(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import media") }
                         Text(mediaUri?.toString() ?: "No media selected", color = Emerald)
-                        Text("Use media you own or are licensed to use.")
+                        Text("Temporary upload uses Litterbox by Catbox. Uploaded files are publicly accessible and automatically expire after 72 hours. Do not upload private, sensitive, or copyrighted material you do not have permission to share.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("I agree to public temporary hosting", modifier = Modifier.weight(1f), color = Color.White)
+                            Checkbox(checked = allowPublicUpload, onCheckedChange = { allowPublicUpload = it })
+                        }
+                        Button(onClick = {
+                            val uri = mediaUri
+                            if (uri == null) status = "Import a video or audio file first."
+                            else if (!allowPublicUpload) status = "Confirm public temporary upload consent first."
+                            else {
+                                val mime = context.contentResolver.getType(uri).orEmpty()
+                                if (!mime.startsWith("video/") && !mime.startsWith("audio/")) status = "Cloud Render upload currently supports video and audio files only."
+                                else {
+                                    renderBusy = true; status = "Uploading media to temporary hosting…"
+                                    runTask({ uploadToLitterbox(context, uri) }) { result, error ->
+                                        renderBusy = false
+                                        if (error != null) status = "Media upload failed: $error"
+                                        else {
+                                            uploadedMediaUrl = result as? String ?: ""
+                                            if (mime.startsWith("video/")) {
+                                                sourceVideoUrl = uploadedMediaUrl
+                                                status = "Video uploaded. Direct URL added to Cloud Render."
+                                            } else {
+                                                voiceoverUrl = uploadedMediaUrl
+                                                status = "Audio uploaded. Voiceover URL added to Cloud Render."
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }, enabled = !renderBusy && mediaUri != null, modifier = Modifier.fillMaxWidth()) { Text(if (renderBusy) "Uploading…" else "Upload selected media (72h link)") }
+                        if (uploadedMediaUrl.isNotBlank()) {
+                            Text("Uploaded URL", color = Gold, fontWeight = FontWeight.Bold)
+                            Text(uploadedMediaUrl, color = Emerald)
+                            OutlinedButton(onClick = { android.content.ClipData.newPlainText("Uploaded media URL", uploadedMediaUrl).let { clip -> (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip) }; status = "Upload URL copied." }, modifier = Modifier.fillMaxWidth()) { Text("Copy uploaded URL") }
+                        }
+                        Text("Use media you own or are licensed to use. The temporary link is public; anyone with the URL may access it.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     }
                     2 -> {
                         Text("VOICE & NARRATION", color = Gold, fontWeight = FontWeight.Bold)
@@ -475,6 +514,60 @@ private fun requestJson(endpoint: String, key: String, method: String, body: Str
 
 private fun String?.ifNullOrEmpty(fallback: String): String =
     if (this.isNullOrBlank()) fallback else this
+
+private fun uploadToLitterbox(context: android.content.Context, uri: Uri): String {
+    val resolver = context.contentResolver
+    val mime = resolver.getType(uri).orEmpty().ifBlank { "application/octet-stream" }
+    require(mime.startsWith("video/") || mime.startsWith("audio/")) { "Only video and audio uploads are supported." }
+    val fileName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }?.replace(Regex("[\\\\r\\\\n\\\\\"]"), "_")?.take(120) ?: "gikoko-media.bin"
+    val size = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+    require(size > 0L) { "Could not determine file size. Choose a normal local video or audio file." }
+    require(size <= 1024L * 1024L * 1024L) { "Litterbox maximum upload size is 1 GB." }
+
+    val boundary = "----GIKOKO" + java.util.UUID.randomUUID().toString().replace("-", "")
+    val connection = (URL("https://litterbox.catbox.moe/resources/internals/api.php").openConnection() as HttpURLConnection)
+    try {
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 30000
+        connection.readTimeout = 30 * 60 * 1000
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        connection.setRequestProperty("Accept", "text/plain")
+        val prefix = "--$boundary\\r\\nContent-Disposition: form-data; name=\\"reqtype\\"\\r\\n\\r\\nfileupload\\r\\n" +
+            "--$boundary\\r\\nContent-Disposition: form-data; name=\\"time\\"\\r\\n\\r\\n72h\\r\\n" +
+            "--$boundary\\r\\nContent-Disposition: form-data; name=\\"fileToUpload\\"; filename=\\"$fileName\\"\\r\\nContent-Type: $mime\\r\\n\\r\\n"
+        val suffix = "\\r\\n--$boundary--\\r\\n"
+        val prefixBytes = prefix.toByteArray(StandardCharsets.UTF_8)
+        val suffixBytes = suffix.toByteArray(StandardCharsets.UTF_8)
+        connection.setFixedLengthStreamingMode(prefixBytes.size.toLong() + size + suffixBytes.size)
+        connection.outputStream.use { output ->
+            output.write(prefixBytes)
+            resolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    total += count
+                }
+                require(total == size) { "File changed during upload; please select it again." }
+            } ?: throw IllegalStateException("Could not read the selected file.")
+            output.write(suffixBytes)
+            output.flush()
+        }
+        val code = connection.responseCode
+        val response = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText().trim() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Upload server HTTP $code: " + response.take(300))
+        require(response.startsWith("https://litter.catbox.moe/")) { "Upload service returned an unexpected response: " + response.take(250) }
+        return response
+    } finally {
+        connection.disconnect()
+    }
+}
+
 
 private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String): String {
     require(token.isNotBlank()) { "GitHub token is required." }
