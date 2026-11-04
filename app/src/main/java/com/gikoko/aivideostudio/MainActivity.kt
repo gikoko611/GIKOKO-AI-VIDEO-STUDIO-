@@ -519,15 +519,16 @@ private fun uploadToLitterbox(context: android.content.Context, uri: Uri): Strin
     val resolver = context.contentResolver
     val mime = resolver.getType(uri).orEmpty().ifBlank { "application/octet-stream" }
     require(mime.startsWith("video/") || mime.startsWith("audio/")) { "Only video and audio uploads are supported." }
-    val fileName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+    val rawName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(0) else null
-    }?.replace(Regex("[\\\\r\\\\n\\\\\"]"), "_")?.take(120) ?: "gikoko-media.bin"
+    } ?: "gikoko-media.bin"
+    val fileName = rawName.replace("\"", "_").replace("\r", "_").replace("\n", "_").take(120)
     val size = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
     require(size > 0L) { "Could not determine file size. Choose a normal local video or audio file." }
     require(size <= 1024L * 1024L * 1024L) { "Litterbox maximum upload size is 1 GB." }
 
     val boundary = "----GIKOKO" + java.util.UUID.randomUUID().toString().replace("-", "")
-    val connection = (URL("https://litterbox.catbox.moe/resources/internals/api.php").openConnection() as HttpURLConnection)
+    val connection = URL("https://litterbox.catbox.moe/resources/internals/api.php").openConnection() as HttpURLConnection
     try {
         connection.requestMethod = "POST"
         connection.connectTimeout = 30000
@@ -535,10 +536,10 @@ private fun uploadToLitterbox(context: android.content.Context, uri: Uri): Strin
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         connection.setRequestProperty("Accept", "text/plain")
-        val prefix = "--$boundary\\r\\nContent-Disposition: form-data; name=\\"reqtype\\"\\r\\n\\r\\nfileupload\\r\\n" +
-            "--$boundary\\r\\nContent-Disposition: form-data; name=\\"time\\"\\r\\n\\r\\n72h\\r\\n" +
-            "--$boundary\\r\\nContent-Disposition: form-data; name=\\"fileToUpload\\"; filename=\\"$fileName\\"\\r\\nContent-Type: $mime\\r\\n\\r\\n"
-        val suffix = "\\r\\n--$boundary--\\r\\n"
+        val prefix = "--$boundary\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n" +
+            "--$boundary\r\nContent-Disposition: form-data; name=\"time\"\r\n\r\n72h\r\n" +
+            "--$boundary\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"$fileName\"\r\nContent-Type: $mime\r\n\r\n"
+        val suffix = "\r\n--$boundary--\r\n"
         val prefixBytes = prefix.toByteArray(StandardCharsets.UTF_8)
         val suffixBytes = suffix.toByteArray(StandardCharsets.UTF_8)
         connection.setFixedLengthStreamingMode(prefixBytes.size.toLong() + size + suffixBytes.size)
@@ -567,7 +568,6 @@ private fun uploadToLitterbox(context: android.content.Context, uri: Uri): Strin
         connection.disconnect()
     }
 }
-
 
 private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String): String {
     require(token.isNotBlank()) { "GitHub token is required." }
