@@ -200,7 +200,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v0.7.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.8.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -308,7 +308,7 @@ private fun StudioApp() {
                     }
                     3 -> {
                         Text("MULTI-TRACK TIMELINE", color = Gold, fontWeight = FontWeight.Bold)
-                        Text("Arrange Video, Voice, Subtitle and Overlay clips. Cloud Render now applies the first Voice clip start offset and first Subtitle clip start offset. Video remains the main source URL; extra video clips and timed overlay compositing are not yet rendered.", color = Color.LightGray)
+                        Text("For multi-video editing, import a video in Media, upload it to the temporary public host, then add its uploaded URL here. Add at least two VIDEO clips; Cloud Render joins them in start-time order and uses each clip duration. Upload each clip separately. Voice and subtitle offsets are also applied.", color = Color.LightGray)
                         val trackNames = listOf("VIDEO", "VOICE", "SUBTITLE", "OVERLAY")
                         trackNames.forEach { trackName ->
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), modifier = Modifier.fillMaxWidth()) {
@@ -330,9 +330,11 @@ private fun StudioApp() {
                                     }
                                     when (trackName) {
                                         "VIDEO" -> OutlinedButton(onClick = {
-                                            if (mediaUri == null) status = "Import a video or image in Media first."
-                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Main media", "0", "30", mediaUri.toString())); status = "Media clip added to Video track." }
-                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add selected media") }
+                                            val selectedMime = mediaUri?.let { context.contentResolver.getType(it).orEmpty() }.orEmpty()
+                                            if (mediaUri == null || !selectedMime.startsWith("video/")) status = "Import a video in Media first."
+                                            else if (!uploadedMediaUrl.startsWith("https://")) status = "Upload this selected video in Media first. Its temporary HTTPS URL is required."
+                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Video clip", "0", "30", uploadedMediaUrl)); status = "Uploaded video URL added to Video track." }
+                                        }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add uploaded video") }
                                         "VOICE" -> OutlinedButton(onClick = {
                                             if (script.isBlank() && voiceoverUrl.isBlank()) status = "Create a script or add a voiceover URL in Render first."
                                             else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Narration", "0", "30", if (voiceoverUrl.isNotBlank()) voiceoverUrl else "Android TTS from current script")); status = "Voice clip reference added." }
