@@ -33,6 +33,7 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipInputStream
 
 private val Gold = Color(0xFFFFC857)
 private val Emerald = Color(0xFF00C389)
@@ -86,6 +87,7 @@ private fun StudioApp() {
     var trimEnd by remember { mutableStateOf("") }
     var aspectRatio by remember { mutableStateOf("9:16") }
     var renderRunUrl by remember { mutableStateOf("") }
+    var renderRunId by remember { mutableStateOf(0L) }
     var renderRunStatus by remember { mutableStateOf("No render job checked yet.") }
     var renderBusy by remember { mutableStateOf(false) }
 
@@ -138,6 +140,19 @@ private fun StudioApp() {
                     voiceExportTarget.set(null)
                     status = "Could not start WAV synthesis. Check Android English TTS settings."
                 } else status = "Creating WAV narration… keep the app open until export completes."
+            }
+        }
+    }
+
+    val mp4Exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("video/mp4")) { uri ->
+        if (uri != null) {
+            if (githubToken.isBlank() || renderRunId == 0L) status = "Check a render job first and enter the GitHub token."
+            else {
+                renderBusy = true; status = "Downloading and extracting rendered MP4…"
+                runTask({ downloadCloudArtifact(githubToken, renderRunId, uri, context) }) { result, error ->
+                    renderBusy = false
+                    status = error?.let { "MP4 download failed: $it" } ?: (result as? String ?: "MP4 downloaded.")
+                }
             }
         }
     }
@@ -254,6 +269,7 @@ private fun StudioApp() {
                                         val run = result as? JSONObject
                                         renderRunStatus = "Status: " + run?.optString("status") + " | Conclusion: " + run?.optString("conclusion").ifNullOrEmpty("pending")
                                         renderRunUrl = run?.optString("html_url").orEmpty()
+                                        renderRunId = run?.optLong("id") ?: 0L
                                         status = renderRunStatus
                                     }
                                 }
@@ -261,7 +277,8 @@ private fun StudioApp() {
                         }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text("Check latest render job") }
                         Text(renderRunStatus, color = Emerald)
                         if (renderRunUrl.isNotBlank()) {
-                            OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(renderRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open GitHub job / download MP4 artifact") }
+                            OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(renderRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open GitHub job") }
+                            OutlinedButton(onClick = { mp4Exporter.launch("GIKOKO_RENDERED.mp4") }, enabled = !renderBusy && renderRunId != 0L, modifier = Modifier.fillMaxWidth()) { Text("Download MP4 into phone storage") }
                         }
                         Text("Use a fine-grained GitHub token limited to this repository with Actions: Read and write and Metadata: Read. The token stays in memory only; never share it.", color = Gold, style = MaterialTheme.typography.bodySmall)
                         Text("GitHub Actions renders with CPU FFmpeg. Free minutes and artifact retention limits apply; GPU is not guaranteed.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
@@ -412,4 +429,73 @@ private fun srtTime(milliseconds: Long): String {
     val seconds = (milliseconds % 60_000) / 1_000
     val millis = milliseconds % 1_000
     return "%02d:%02d:%02d,%03d".format(hours, minutes, seconds, millis)
+}
+
+
+private fun downloadCloudArtifact(token: String, runId: Long, targetUri: Uri, context: android.content.Context): String {
+    require(token.isNotBlank()) { "GitHub token is required." }
+    require(runId > 0L) { "Check a render job before downloading." }
+    val artifactResponse = githubRequest(
+        token,
+        "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/runs/" + runId + "/artifacts",
+        "GET",
+        null
+    )
+    val artifacts = artifactResponse.optJSONArray("artifacts")
+    if (artifacts == null || artifacts.length() == 0) throw IllegalStateException("No artifact is available yet. Wait until the render succeeds.")
+    val artifact = (0 until artifacts.length()).map { artifacts.getJSONObject(it) }.firstOrNull {
+        !it.optBoolean("expired", false)
+    } ?: throw IllegalStateException("The render artifact has expired.")
+    val archiveUrl = artifact.optString("archive_download_url")
+    if (!archiveUrl.startsWith("https://api.github.com/")) throw IllegalStateException("GitHub returned an invalid artifact URL.")
+
+    val apiConnection = URL(archiveUrl).openConnection() as HttpURLConnection
+    apiConnection.instanceFollowRedirects = false
+    apiConnection.connectTimeout = 20000
+    apiConnection.readTimeout = 60000
+    apiConnection.setRequestProperty("Authorization", "Bearer " + token)
+    apiConnection.setRequestProperty("Accept", "application/vnd.github+json")
+    val code = apiConnection.responseCode
+    val redirectUrl = if (code in 300..399) apiConnection.getHeaderField("Location") else null
+    if (code !in 200..299 && redirectUrl.isNullOrBlank()) {
+        val errorText = apiConnection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        apiConnection.disconnect()
+        throw IllegalStateException("Artifact download HTTP " + code + ": " + errorText.take(300))
+    }
+
+    val zipConnection: HttpURLConnection?
+    val zipStream: java.io.InputStream
+    if (!redirectUrl.isNullOrBlank()) {
+        apiConnection.disconnect()
+        zipConnection = URL(redirectUrl).openConnection() as HttpURLConnection
+        zipConnection.connectTimeout = 20000
+        zipConnection.readTimeout = 120000
+        zipStream = zipConnection.inputStream
+    } else {
+        zipConnection = null
+        zipStream = apiConnection.inputStream
+    }
+
+    var extracted = false
+    try {
+        ZipInputStream(zipStream).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && entry.name.lowercase().endsWith(".mp4")) {
+                    context.contentResolver.openOutputStream(targetUri)?.use { output ->
+                        zip.copyTo(output)
+                    } ?: throw IllegalStateException("Could not open selected phone storage destination.")
+                    extracted = true
+                    break
+                }
+                zip.closeEntry()
+                entry = zip.nextEntry
+            }
+        }
+    } finally {
+        apiConnection.disconnect()
+        zipConnection?.disconnect()
+    }
+    if (!extracted) throw IllegalStateException("The artifact ZIP did not contain an MP4 file.")
+    return "Rendered MP4 saved to the selected phone location."
 }
