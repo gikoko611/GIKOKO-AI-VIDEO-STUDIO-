@@ -200,9 +200,9 @@ private fun StudioApp() {
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
-                listOf("Create", "Media", "Voice", "Render", "Settings").forEachIndexed { index, label ->
+                listOf("Create", "Media", "Voice", "Timeline", "Render", "Settings").forEachIndexed { index, label ->
                     NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index },
-                        icon = { Text(listOf("✦", "▣", "♫", "⇧", "⚙")[index]) }, label = { Text(label) })
+                        icon = { Text(listOf("✦", "▣", "♫", "▤", "⇧", "⚙")[index]) }, label = { Text(label) })
                 }
             }
         }) { padding ->
