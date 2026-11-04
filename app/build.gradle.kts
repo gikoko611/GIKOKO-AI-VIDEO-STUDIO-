@@ -12,8 +12,8 @@ android {
         applicationId = "com.gikoko.aivideostudio"
         minSdk = 29
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.0.1"
+        versionCode = 13
+        versionName = "0.1.0"
         ndk {
             abiFilters += listOf("armeabi-v7a")
         }
@@ -40,5 +40,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.media3:media3-exoplayer:1.9.0")
+    implementation("androidx.media3:media3-ui:1.9.0")
+    implementation("androidx.media3:media3-transformer:1.9.0")
+    implementation("androidx.media3:media3-effect:1.9.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
