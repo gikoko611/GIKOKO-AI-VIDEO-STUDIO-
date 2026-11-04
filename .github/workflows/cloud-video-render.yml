@@ -91,7 +91,7 @@ jobs:
           import json, os, subprocess, urllib.request
           clips = json.loads(os.environ.get("TIMELINE_JSON", "[]") or "[]")
           videos = sorted((c for c in clips if c.get("track") == "VIDEO" and str(c.get("source", "")).startswith("https://")), key=lambda c: float(c.get("start", 0) or 0))
-          if len(videos) > 1:
+          if videos:
               concat = open("concat.txt", "w", encoding="utf-8")
               for index, clip in enumerate(videos):
                   src = clip["source"]
@@ -113,7 +113,7 @@ jobs:
               os.replace("composed.mp4", "input.mp4")
               print(f"Composed {len(videos)} timeline video clips in start-time order.")
           else:
-              print("Using the primary source video; add at least two uploaded VIDEO clips to enable multi-clip composition.")
+              print("No uploaded VIDEO timeline clips found; using the primary source video URL.")
           PY
           ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
 
