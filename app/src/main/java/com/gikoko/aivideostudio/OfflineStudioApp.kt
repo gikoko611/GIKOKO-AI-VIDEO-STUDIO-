@@ -397,7 +397,7 @@ private fun startOfflineExport(
         Effects(
             listOf(StudioAudioProcessor(audioSettings)),
             buildList {
-                if (visualSettings.cropPercent > 0f) {
+                if (visualSettings.concealMode == "Crop" && visualSettings.cropPercent > 0f) {
                     val edge = visualSettings.cropPercent.coerceIn(0f, 0.35f)
                     add(Crop(-1f + edge * 2f, 1f - edge * 2f, -1f + edge * 2f, 1f - edge * 2f))
                 }
