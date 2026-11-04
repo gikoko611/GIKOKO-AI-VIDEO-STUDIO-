@@ -14,6 +14,7 @@ Android-first AI video production app targeting Android 10+ and 32-bit ARMv7 dev
 - Android system Text-to-Speech preview and WAV narration export (English voice depends on installed Android TTS voice data).
 - GitHub Actions cloud-render dispatch from the Android app.
 - Latest GitHub Actions render status check and link to the workflow run.
+- In-app download of the rendered MP4 artifact, including extraction from GitHub's artifact ZIP into a user-selected phone storage location.
 - Cloud FFmpeg options for 9:16 / 16:9 / 1:1 output, watermark, optional voiceover audio, optional SRT subtitle burn-in, and start/end trimming.
 - API keys and GitHub token are kept in memory only and are not written to preferences.
 
@@ -29,7 +30,7 @@ Open the app's **Render** tab and provide:
 - A GitHub fine-grained personal access token limited to this repository with **Actions: Read and write** and **Metadata: Read** permissions.
 - Output aspect ratio.
 
-Tap **Start Cloud Render**, then **Check latest render job**. When the job finishes, tap **Open GitHub job / download MP4 artifact**. Download the MP4 artifact from the run page; GitHub stores the artifact in a ZIP archive.
+Tap **Start Cloud Render**, then **Check latest render job**. When the job finishes, tap **Check latest render job**, then use **Download MP4 into phone storage** to save the MP4 directly through Android's file picker. The app retrieves the GitHub artifact ZIP and extracts the MP4.
 
 The source media must already be hosted at a direct downloadable URL. A file selected from the phone's local storage is not automatically uploaded to GitHub or a hosting provider. Do not paste or share your GitHub token with anyone. The app holds it in memory only; closing/restarting the app clears it.
 
@@ -43,7 +44,6 @@ Open `cloud-renderer/GIKOKO_Colab_Renderer.ipynb` in Google Colab. Upload a sour
 
 These features are still required before calling this a complete v1.0.0 release:
 - Automatic upload of selected phone media to cloud storage.
-- In-app artifact ZIP download and extraction (the current app opens the GitHub Actions run page).
 - Full multitrack timeline editor with drag/drop clip arrangement, transitions, and overlays.
 - Precise speech-aligned subtitles and subtitle timing editor.
 - Direct local MP4 export without a cloud render.
