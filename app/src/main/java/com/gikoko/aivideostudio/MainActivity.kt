@@ -267,7 +267,7 @@ private fun StudioApp() {
                     }
                     1 -> {
                         Text("MEDIA LIBRARY", color = Gold, fontWeight = FontWeight.Bold)
-                        Text("Import a video or audio file from your phone, then optionally upload it to temporary public hosting for Cloud Render.", color = Color.LightGray)
+                        Text("Import video, audio, or image files. Upload each asset to temporary public hosting, then add it to the matching Timeline track.", color = Color.LightGray)
                         Button(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import media") }
                         Text(mediaUri?.toString() ?: "No media selected", color = Emerald)
                         Text("Temporary upload uses Litterbox by Catbox. Uploaded files are publicly accessible and automatically expire after 72 hours. Do not upload private, sensitive, or copyrighted material you do not have permission to share.", color = Gold, style = MaterialTheme.typography.bodySmall)
@@ -281,7 +281,7 @@ private fun StudioApp() {
                             else if (!allowPublicUpload) status = "Confirm public temporary upload consent first."
                             else {
                                 val mime = context.contentResolver.getType(uri).orEmpty()
-                                if (!mime.startsWith("video/") && !mime.startsWith("audio/")) status = "Cloud Render upload currently supports video and audio files only."
+                                if (!mime.startsWith("video/") && !mime.startsWith("audio/") && !mime.startsWith("image/")) status = "Choose a video, audio, or image file."
                                 else {
                                     renderBusy = true; status = "Uploading media to temporary hosting…"
                                     runTask({ uploadToLitterbox(context, uri) }) { result, error ->
@@ -292,9 +292,11 @@ private fun StudioApp() {
                                             if (mime.startsWith("video/")) {
                                                 sourceVideoUrl = uploadedMediaUrl
                                                 status = "Video uploaded. Direct URL added to Cloud Render."
-                                            } else {
+                                            } else if (mime.startsWith("audio/")) {
                                                 voiceoverUrl = uploadedMediaUrl
-                                                status = "Audio uploaded. Voiceover URL added to Cloud Render."
+                                                status = "Audio uploaded. Add it to the VOICE track; repeat to mix more tracks."
+                                            } else {
+                                                status = "Image uploaded. Add it to the OVERLAY track."
                                             }
                                         }
                                     }
@@ -322,7 +324,7 @@ private fun StudioApp() {
                     }
                     3 -> {
                         Text("MULTI-TRACK TIMELINE", color = Gold, fontWeight = FontWeight.Bold)
-                        Text("For multi-video editing, import a video in Media, upload it to the temporary public host, then add its uploaded URL here. Add at least two VIDEO clips; Cloud Render joins them in start-time order and uses each clip duration. Upload each clip separately. Voice and subtitle offsets are also applied.", color = Color.LightGray)
+                        Text("Upload each video, audio, or image separately. Add videos to VIDEO, audio files to VOICE for multi-track mixing, and images to OVERLAY. Start and duration control clip timing. MP3 audio export is also available.", color = Color.LightGray)
                         val trackNames = listOf("VIDEO", "VOICE", "SUBTITLE", "OVERLAY")
                         trackNames.forEach { trackName ->
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), modifier = Modifier.fillMaxWidth()) {
@@ -350,15 +352,15 @@ private fun StudioApp() {
                                             else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Video clip", "0", "30", uploadedMediaUrl)); status = "Uploaded video URL added to Video track." }
                                         }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add uploaded video") }
                                         "VOICE" -> OutlinedButton(onClick = {
-                                            if (script.isBlank() && voiceoverUrl.isBlank()) status = "Create a script or add a voiceover URL in Render first."
-                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Narration", "0", "30", if (voiceoverUrl.isNotBlank()) voiceoverUrl else "Android TTS from current script")); status = "Voice clip reference added." }
+                                            if (!voiceoverUrl.startsWith("https://")) status = "Import and upload an audio file first. Then add it to the VOICE track."
+                                            else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Audio track ${timelineClips.count { it.track == "VOICE" } + 1}", "0", "30", voiceoverUrl)); status = "Audio clip added. Upload another audio file to add another track." }
                                         }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add narration reference") }
                                         "SUBTITLE" -> OutlinedButton(onClick = {
                                             if (subtitles.isBlank()) status = "Create subtitle text in Create first."
                                             else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Subtitle captions", "0", "30", "Editable subtitle text")); status = "Subtitle clip added." }
                                         }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add subtitles") }
                                         "OVERLAY" -> OutlinedButton(onClick = {
-                                            timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Powered by I KO KO", "0", "30", "Text watermark overlay")); status = "Watermark overlay added."
+                                            if (uploadedMediaUrl.startsWith("https://") && mediaUri?.let { context.contentResolver.getType(it).orEmpty().startsWith("image/") } == true) { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Image overlay", "0", "30", uploadedMediaUrl)); status = "Uploaded image overlay added." } else { timelineClips.add(TimelineClip(nextTimelineClipId++, trackName, "Powered by I KO KO", "0", "30", "Text watermark overlay")); status = "Text watermark overlay added. Import and upload an image first to use image overlays." }
                                         }, modifier = Modifier.fillMaxWidth()) { Text("＋ Add watermark overlay") }
                                     }
                                 }
@@ -555,7 +557,7 @@ private fun String?.ifNullOrEmpty(fallback: String): String =
 private fun uploadToLitterbox(context: android.content.Context, uri: Uri): String {
     val resolver = context.contentResolver
     val mime = resolver.getType(uri).orEmpty().ifBlank { "application/octet-stream" }
-    require(mime.startsWith("video/") || mime.startsWith("audio/")) { "Only video and audio uploads are supported." }
+    require(mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")) { "Only video, audio, and image uploads are supported." }
     val rawName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(0) else null
     } ?: "gikoko-media.bin"
