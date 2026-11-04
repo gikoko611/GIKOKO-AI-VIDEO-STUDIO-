@@ -321,7 +321,6 @@ fun OfflineStudioApp() {
 }
 
 @Composable
-@Composable
 private fun FeatureBox(title: String, symbol: String, detail: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val scale = animateFloatAsState(if (selected) 1.025f else 1f, animationSpec = spring(), label = "featureScale")
     Card(
