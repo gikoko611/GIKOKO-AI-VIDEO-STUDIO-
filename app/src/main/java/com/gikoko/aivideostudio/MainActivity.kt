@@ -92,7 +92,7 @@ private fun StudioApp() {
     DisposableEffect(Unit) {
         val engine = TextToSpeech(context) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
-            if (result == TextToSpeech.SUCCESS) engine.language = Locale.US
+            if (result == TextToSpeech.SUCCESS) tts?.language = Locale.US
         }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
