@@ -252,7 +252,25 @@ private fun StudioApp() {
                         Text("AI SCRIPT GENERATOR", color = Gold, fontWeight = FontWeight.Bold)
 
                         HorizontalDivider(color = Emerald.copy(alpha = 0.35f))
-                        Text("TEXT-TO-VIDEO GENERATOR • WAN 3.0", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("FREE GPU TEXT-TO-VIDEO • WAN2.1 OPEN SOURCE", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("No paid inference API and no FAL_KEY. This mode opens the official G.I KO KO Colab notebook. Select a free GPU if Colab offers one, paste the copied prompt, generate the MP4, then import it from Media.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = {
+                            if (prompt.isBlank()) status = "Write a video prompt first."
+                            else {
+                                val clip = android.content.ClipData.newPlainText("G.I KO KO video prompt", prompt)
+                                (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
+                                status = "Prompt copied. Opening the free Wan2.1 Colab notebook…"
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://colab.research.google.com/github/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/blob/main/cloud-renderer/GIKOKO_Wan2_1_Free_T2V.ipynb")))
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("✦ Copy Prompt & Open FREE Colab GPU") }
+                        OutlinedButton(onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://colab.research.google.com/github/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/blob/main/cloud-renderer/GIKOKO_Wan2_1_Free_T2V.ipynb")))
+                            status = "Opened Wan2.1 Free GPU notebook. Run cells from top to bottom."
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Open Colab Notebook") }
+                        Text("After MP4 download: open Media → Import media and select GIKOKO_WAN21_FREE_GPU.mp4. Colab Free GPU access and runtime duration are not guaranteed.", color = Emerald, style = MaterialTheme.typography.bodySmall)
+
+                        HorizontalDivider(color = Emerald.copy(alpha = 0.35f))
+                        Text("OPTIONAL PAID API MODE • WAN 3.0", color = Gold, fontWeight = FontWeight.Bold)
                         Text("Generate a real MP4 from text only. This calls the Wan 3.0 video model through fal.ai using a protected GitHub Actions secret; it is separate from AI script generation.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                         Text("VIDEO PROMPT", color = Emerald, fontWeight = FontWeight.Bold)
                         OutlinedTextField(value = prompt, onValueChange = { prompt = it }, label = { Text("Describe subject, action, camera, lighting, style and sound") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
@@ -305,7 +323,7 @@ private fun StudioApp() {
                             OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(textVideoRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open generation job") }
                             OutlinedButton(onClick = { textVideoExporter.launch("GIKOKO_AI_VIDEO.mp4") }, enabled = !renderBusy && textVideoRunId != 0L, modifier = Modifier.fillMaxWidth()) { Text("Download AI-generated MP4") }
                         }
-                        Text("IMPORTANT: Add FAL_KEY as a GitHub repository Actions secret before generating. fal.ai API generations are pay-per-use; free sandbox daily generations are browser-only and are not guaranteed through this API workflow. Review the price before using.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                        Text("PAID API NOTICE: This separate Wan 3.0 button requires FAL_KEY and may incur charges. Do not use it for the free workflow. The FREE GPU button above does not call fal.ai or use FAL_KEY.", color = Gold, style = MaterialTheme.typography.bodySmall)
                         Text("VIDEO DURATION", color = Gold, fontWeight = FontWeight.Bold)
                         var durationMenuExpanded by remember { mutableStateOf(false) }
                         val durationOptions = listOf("30 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min", "Custom")
