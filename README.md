@@ -36,6 +36,36 @@ The source media must already be hosted at a direct downloadable URL. A file sel
 
 The renderer uses GitHub-hosted CPU FFmpeg. GPU is not guaranteed. GitHub Actions minutes, artifact retention, and repository limits apply. The artifact retention period is three days.
 
+
+## Text-to-Video (Wan 3.0)
+
+The **Create** tab includes a real prompt-to-MP4 workflow powered by `alibaba/wan-3.0/text-to-video` on fal.ai. It is separate from the LLM script generator.
+
+### One-time setup
+
+1. Create/sign in to a fal.ai account and create an API key.
+2. In this GitHub repository, open **Settings → Secrets and variables → Actions → New repository secret**.
+3. Name the secret exactly `FAL_KEY` and paste the fal.ai API key as its value.
+4. In the app's Create tab, enter a GitHub fine-grained token with **Actions: Read and write** and **Metadata: Read** permissions.
+
+The fal.ai key is used only inside GitHub Actions and is never entered into the Android app. Do not place it in source code or commit it to GitHub.
+
+### Generate a clip
+
+- Enter a prompt describing the subject, action, camera movement, lighting, visual style, and desired sound.
+- Select 5, 10, or 15 seconds, resolution (480p / 720p / 1080p), aspect ratio, and synchronized audio.
+- Tap **Generate AI Video from Prompt**.
+- Tap **Check AI Video Generation** after a short wait. Open the job link to inspect logs if needed.
+- When the run succeeds, tap **Download AI-generated MP4**.
+
+The workflow waits for fal.ai's queued generation, downloads the returned MP4, validates it with FFprobe/FFmpeg, and uploads it as a GitHub Actions artifact retained for three days.
+
+### Cost and limits
+
+This is a real hosted video-generation API, not local rendering. fal.ai's Wan 3.0 API is pay-per-use; the API price depends on resolution and duration and can change. The five daily free Wan 3.0 generations described by fal.ai are available in its browser sandbox and are not automatically included in API usage. Review the current price in fal.ai before triggering a generation. GitHub Actions minutes and artifact limits also apply.
+
+The app does not claim that text-to-video generation is free or unlimited. The first generation should be a short test clip (5 seconds, 480p) so the user can confirm the API setup and review the charge before producing longer clips.
+
 ## Google Colab
 
 Open `cloud-renderer/GIKOKO_Colab_Renderer.ipynb` in Google Colab. Upload a source video, select the aspect ratio and watermark, run the cells, and download the rendered MP4. A free T4 GPU is not guaranteed; the notebook falls back to CPU encoding.
