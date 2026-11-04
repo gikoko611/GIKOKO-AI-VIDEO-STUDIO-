@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,14 +17,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.Presentation
+import androidx.media3.effect.Crop
+import androidx.media3.effect.GaussianBlur
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -46,12 +52,16 @@ private val StudioBackground = Color(0xFF101713)
 private val StudioPanel = Color(0xFF1B2721)
 
 private data class StudioAudioTrack(val uri: Uri, val label: String)
+private data class StudioVisualSettings(val cropPercent: Float, val concealMode: String, val blurStrength: Float)
 
 @Composable
 fun OfflineStudioApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tab by remember { mutableIntStateOf(0) }
+    var cropPercent by remember { mutableFloatStateOf(0f) }
+    var concealMode by remember { mutableStateOf("Off") }
+    var blurStrength by remember { mutableFloatStateOf(12f) }
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var videoDurationMs by remember { mutableLongStateOf(0L) }
     var trimStartMs by remember { mutableLongStateOf(0L) }
@@ -127,6 +137,7 @@ fun OfflineStudioApp() {
                     endMs = end,
                     shortSide = if (resolution == "720p") 720 else 480,
                     audioSettings = StudioAudioSettings(audioGain, lowDb, midDb, highDb, compressorThreshold, compressorRatio, noiseGateDb),
+                    visualSettings = StudioVisualSettings(cropPercent, concealMode, blurStrength),
                     targetUri = target,
                     onStatus = { status = it },
                     onFinished = { exporting = false; status = it }
@@ -154,11 +165,11 @@ fun OfflineStudioApp() {
             },
             bottomBar = {
                 NavigationBar(containerColor = StudioPanel) {
-                    listOf("Edit", "Audio", "Export").forEachIndexed { index, label ->
+                    listOf("Edit", "Watermark", "Audio", "Export").forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = tab == index,
                             onClick = { tab = index },
-                            icon = { Text(listOf("✂", "♫", "⇧")[index]) },
+                            icon = { Text(listOf("✂", "◩", "♫", "⇧")[index]) },
                             label = { Text(label) }
                         )
                     }
@@ -172,6 +183,15 @@ fun OfflineStudioApp() {
                 when (tab) {
                     0 -> {
                         Text("VIDEO EDITOR", color = StudioGold, fontWeight = FontWeight.Bold)
+                        Text("FEATURE HUB • Tap a 3D-style box to open its tools", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FeatureBox("VIDEO", "✂", "Trim • Crop", false, Modifier.weight(1f)) { tab = 0 }
+                            FeatureBox("WATERMARK", "◩", "Remove tools", false, Modifier.weight(1f)) { tab = 1 }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FeatureBox("AUDIO", "♫", "EQ • Mixer", false, Modifier.weight(1f)) { tab = 2 }
+                            FeatureBox("EXPORT", "⇧", "480p • 720p", false, Modifier.weight(1f)) { tab = 3 }
+                        }
                         if (videoUri == null) {
                             Surface(color = StudioPanel, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth().height(210.dp)) {
                                 Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.Center) {
@@ -211,6 +231,27 @@ fun OfflineStudioApp() {
                         Text("Current offline core: local video preview, trim in/out, H.264 MP4 export and multi-track audio composition. Advanced visual effects, transitions, keyframes and draggable clip lanes are being added in later build stages.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     }
                     1 -> {
+                        Text("WATERMARK REMOVER STUDIO", color = StudioGold, fontWeight = FontWeight.Bold)
+                        Text("Offline tools for videos you own or are authorized to edit.", color = Color.LightGray)
+                        FeatureBox("CROP", "▣", "Trim edges / corner logos", concealMode == "Crop", Modifier.fillMaxWidth()) { concealMode = if (concealMode == "Crop") "Off" else "Crop" }
+                        Text("EDGE CROP • " + String.format(Locale.US, "%.0f%%", cropPercent * 100), color = StudioGold)
+                        Slider(value = cropPercent, onValueChange = { cropPercent = it }, valueRange = 0f..0.35f)
+                        Text("Crop applies evenly from all four edges during export.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        FeatureBox("BLUR", "◌", "Gaussian conceal", concealMode == "Blur", Modifier.fillMaxWidth()) { concealMode = if (concealMode == "Blur") "Off" else "Blur" }
+                        FeatureBox("MOSAIC", "▦", "Strong soft-pixel conceal", concealMode == "Mosaic", Modifier.fillMaxWidth()) { concealMode = if (concealMode == "Mosaic") "Off" else "Mosaic" }
+                        Text("CONCEAL STRENGTH • " + blurStrength.toInt(), color = StudioGold)
+                        Slider(value = blurStrength, onValueChange = { blurStrength = it }, valueRange = 4f..28f)
+                        Text("Blur and Mosaic currently affect the whole frame, not a movable selected rectangle. Region tracking is a later upgrade.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        Card(colors = CardDefaults.cardColors(containerColor = StudioPanel), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("AI WATERMARK REMOVER", color = StudioGold, fontWeight = FontWeight.Bold)
+                                Text("Offline AI inpainting needs a bundled model and region mask. The AI engine is not bundled in this build, so this is marked as planned rather than shown as working.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                                Text("STATUS • AI MODEL NOT INSTALLED", color = StudioGold, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        OutlinedButton(onClick = { concealMode = "Off"; cropPercent = 0f }, modifier = Modifier.fillMaxWidth()) { Text("Reset Watermark Tools") }
+                    }
+                    2 -> {
                         Text("FULL AUDIO STUDIO", color = StudioGold, fontWeight = FontWeight.Bold)
                         Text("Audio tracks are imported locally and mixed together over the video. The selected EQ, compressor and noise gate are applied during export.", color = Color.LightGray)
                         Button(onClick = { audioPicker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth()) {
@@ -280,6 +321,28 @@ fun OfflineStudioApp() {
 }
 
 @Composable
+@Composable
+private fun FeatureBox(title: String, symbol: String, detail: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val scale = animateFloatAsState(if (selected) 1.025f else 1f, animationSpec = spring(), label = "featureScale")
+    Card(
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+            rotationX = if (selected) 2f else 0f
+            shadowElevation = if (selected) 14f else 5f
+        }.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF263B30) else StudioPanel),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 8.dp else 3.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(symbol, color = StudioGold, style = MaterialTheme.typography.headlineSmall)
+            Text(title, color = StudioGold, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
+            Text(detail, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
 private fun AudioSlider(label: String, value: Float, min: Float, max: Float, onValue: (Float) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label + "  " + String.format(Locale.US, "%+.1f dB", value), color = Color.LightGray)
@@ -318,6 +381,7 @@ private fun startOfflineExport(
     endMs: Long,
     shortSide: Int,
     audioSettings: StudioAudioSettings,
+    visualSettings: StudioVisualSettings,
     targetUri: Uri,
     onStatus: (String) -> Unit,
     onFinished: (String) -> Unit
@@ -332,7 +396,15 @@ private fun startOfflineExport(
     ).setEffects(
         Effects(
             listOf(StudioAudioProcessor(audioSettings)),
-            listOf(Presentation.createForShortSide(shortSide))
+            buildList {
+                if (visualSettings.cropPercent > 0f) {
+                    val edge = visualSettings.cropPercent.coerceIn(0f, 0.35f)
+                    add(Crop(-1f + edge * 2f, 1f - edge * 2f, -1f + edge * 2f, 1f - edge * 2f))
+                }
+                if (visualSettings.concealMode == "Blur") add(GaussianBlur(visualSettings.blurStrength))
+                if (visualSettings.concealMode == "Mosaic") add(GaussianBlur(visualSettings.blurStrength * 1.8f))
+                add(Presentation.createForShortSide(shortSide))
+            }
         )
     ).build()
 
