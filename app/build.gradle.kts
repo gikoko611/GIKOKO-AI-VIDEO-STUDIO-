@@ -14,17 +14,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        ndk {
+            abiFilters += listOf("armeabi-v7a")
+        }
     }
 
     buildFeatures {
         compose = true
-    }
-
-    // Keep native ABI support explicit for the Redmi 9A target.
-    defaultConfig {
-        ndk {
-            abiFilters += listOf("armeabi-v7a")
-        }
     }
 }
 
