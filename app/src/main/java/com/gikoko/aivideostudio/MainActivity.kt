@@ -110,6 +110,14 @@ private fun StudioApp() {
     var renderRunStatus by remember { mutableStateOf("No render job checked yet.") }
     var renderBusy by remember { mutableStateOf(false) }
 
+    var textVideoDuration by remember { mutableStateOf("5") }
+    var textVideoResolution by remember { mutableStateOf("720p") }
+    var textVideoAspect by remember { mutableStateOf("9:16") }
+    var textVideoAudio by remember { mutableStateOf(true) }
+    var textVideoRunId by remember { mutableStateOf(0L) }
+    var textVideoRunUrl by remember { mutableStateOf("") }
+    var textVideoRunStatus by remember { mutableStateOf("No AI video generation job submitted yet.") }
+
     DisposableEffect(Unit) {
         val engine = TextToSpeech(context) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -189,6 +197,20 @@ private fun StudioApp() {
         }
     }
 
+
+    val textVideoExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("video/mp4")) { uri ->
+        if (uri != null) {
+            if (githubToken.isBlank() || textVideoRunId == 0L) status = "Submit and check a Text-to-Video job first."
+            else {
+                renderBusy = true; status = "Downloading AI-generated MP4…"
+                runTask({ downloadCloudArtifact(githubToken, textVideoRunId, uri, context) }) { result, error ->
+                    renderBusy = false
+                    status = error?.let { "AI video download failed: $it" } ?: (result as? String ?: "AI video downloaded.")
+                }
+            }
+        }
+    }
+
     val subtitleExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
         if (uri != null) {
             try {
@@ -214,7 +236,7 @@ private fun StudioApp() {
         Scaffold(containerColor = Ink, topBar = {
             Column(Modifier.fillMaxWidth().background(Panel).padding(16.dp)) {
                 Text("G.I KO KO", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("AI VIDEO STUDIO  •  v1.0.0 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
+                Text("AI VIDEO STUDIO  •  v0.0.1 development", color = Emerald, style = MaterialTheme.typography.labelMedium)
             }
         }, bottomBar = {
             NavigationBar(containerColor = Panel) {
@@ -228,6 +250,62 @@ private fun StudioApp() {
                 when (selectedTab) {
                     0 -> {
                         Text("AI SCRIPT GENERATOR", color = Gold, fontWeight = FontWeight.Bold)
+
+                        HorizontalDivider(color = Emerald.copy(alpha = 0.35f))
+                        Text("TEXT-TO-VIDEO GENERATOR • WAN 3.0", color = Gold, fontWeight = FontWeight.Bold)
+                        Text("Generate a real MP4 from text only. This calls the Wan 3.0 video model through fal.ai using a protected GitHub Actions secret; it is separate from AI script generation.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        Text("VIDEO PROMPT", color = Emerald, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(value = prompt, onValueChange = { prompt = it }, label = { Text("Describe subject, action, camera, lighting, style and sound") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(value = textVideoDuration, onValueChange = { textVideoDuration = it.filter(Char::isDigit).take(2) }, label = { Text("Seconds (5/10/15)") }, modifier = Modifier.weight(1f), singleLine = true)
+                            OutlinedTextField(value = textVideoResolution, onValueChange = { textVideoResolution = it }, label = { Text("Resolution") }, modifier = Modifier.weight(1f), singleLine = true)
+                        }
+                        OutlinedTextField(value = textVideoAspect, onValueChange = { textVideoAspect = it }, label = { Text("Aspect ratio: 9:16 / 16:9 / 1:1 / 4:3 / 3:4") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("GENERATE SYNCHRONIZED AUDIO", color = Emerald, fontWeight = FontWeight.Bold)
+                                Text("Wan 3.0 can generate sound with the video.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Checkbox(checked = textVideoAudio, onCheckedChange = { textVideoAudio = it })
+                        }
+                        OutlinedTextField(value = githubToken, onValueChange = { githubToken = it }, label = { Text("GitHub token — session only") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Button(onClick = {
+                            if (githubToken.isBlank()) status = "Enter a GitHub token with Actions read/write permission."
+                            else if (prompt.isBlank()) status = "Write a video prompt first."
+                            else if (textVideoDuration !in listOf("5", "10", "15")) status = "Duration must be 5, 10, or 15 seconds."
+                            else if (textVideoResolution !in listOf("480p", "720p", "1080p")) status = "Resolution must be 480p, 720p, or 1080p."
+                            else if (textVideoAspect !in listOf("9:16", "16:9", "1:1", "4:3", "3:4")) status = "Choose a supported aspect ratio."
+                            else {
+                                renderBusy = true; status = "Submitting prompt to Wan 3.0…"
+                                runTask({ dispatchTextVideo(githubToken, prompt, textVideoResolution, textVideoAspect, textVideoDuration, textVideoAudio) }) { _, error ->
+                                    renderBusy = false
+                                    status = error?.let { "Text-to-Video dispatch failed: $it" } ?: "AI video request submitted. Check generation status in a few seconds."
+                                }
+                            }
+                        }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text(if (renderBusy) "Submitting…" else "✦ Generate AI Video from Prompt") }
+                        OutlinedButton(onClick = {
+                            if (githubToken.isBlank()) status = "Enter GitHub token first."
+                            else {
+                                renderBusy = true; status = "Checking latest Wan 3.0 generation…"
+                                runTask({ latestTextVideoRun(githubToken) }) { result, error ->
+                                    renderBusy = false
+                                    if (error != null) status = "Text-to-Video check failed: $error"
+                                    else {
+                                        val run = result as? JSONObject
+                                        textVideoRunId = run?.optLong("id") ?: 0L
+                                        textVideoRunUrl = run?.optString("html_url").orEmpty()
+                                        textVideoRunStatus = "Status: " + run?.optString("status") + " | Conclusion: " + run?.optString("conclusion").ifNullOrEmpty("pending")
+                                        status = textVideoRunStatus
+                                    }
+                                }
+                            }
+                        }, enabled = !renderBusy, modifier = Modifier.fillMaxWidth()) { Text("Check AI Video Generation") }
+                        Text(textVideoRunStatus, color = Emerald)
+                        if (textVideoRunUrl.isNotBlank()) {
+                            OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(textVideoRunUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Open generation job") }
+                            OutlinedButton(onClick = { textVideoExporter.launch("GIKOKO_AI_VIDEO.mp4") }, enabled = !renderBusy && textVideoRunId != 0L, modifier = Modifier.fillMaxWidth()) { Text("Download AI-generated MP4") }
+                        }
+                        Text("IMPORTANT: Add FAL_KEY as a GitHub repository Actions secret before generating. fal.ai API generations are pay-per-use; free sandbox daily generations are browser-only and are not guaranteed through this API workflow. Review the price before using.", color = Gold, style = MaterialTheme.typography.bodySmall)
                         Text("VIDEO DURATION", color = Gold, fontWeight = FontWeight.Bold)
                         var durationMenuExpanded by remember { mutableStateOf(false) }
                         val durationOptions = listOf("30 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min", "Custom")
@@ -607,6 +685,37 @@ private fun uploadToLitterbox(context: android.content.Context, uri: Uri): Strin
     } finally {
         connection.disconnect()
     }
+}
+
+
+private fun dispatchTextVideo(token: String, prompt: String, resolution: String, ratio: String, duration: String, audio: Boolean): String {
+    require(token.isNotBlank()) { "GitHub token is required." }
+    require(prompt.isNotBlank() && prompt.length <= 5000) { "Prompt must contain 1–5000 characters." }
+    require(resolution in listOf("480p", "720p", "1080p")) { "Unsupported resolution." }
+    require(ratio in listOf("9:16", "16:9", "1:1", "4:3", "3:4")) { "Unsupported aspect ratio." }
+    require(duration in listOf("5", "10", "15")) { "Duration must be 5, 10, or 15 seconds." }
+    val body = JSONObject()
+        .put("ref", "main")
+        .put("inputs", JSONObject()
+            .put("prompt", prompt.trim())
+            .put("resolution", resolution)
+            .put("aspect_ratio", ratio)
+            .put("duration", duration)
+            .put("audio", audio))
+    githubRequest(token, "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/text-to-video.yml/dispatches", "POST", body.toString())
+    return "Text-to-Video workflow dispatch accepted."
+}
+
+private fun latestTextVideoRun(token: String): JSONObject {
+    val response = githubRequest(
+        token,
+        "/repos/gikoko611/GIKOKO-AI-VIDEO-STUDIO-/actions/workflows/text-to-video.yml/runs?branch=main&per_page=1",
+        "GET",
+        null
+    )
+    val runs = response.optJSONArray("workflow_runs")
+    if (runs == null || runs.length() == 0) throw IllegalStateException("No Text-to-Video runs found yet. Wait a few seconds after dispatch.")
+    return runs.getJSONObject(0)
 }
 
 private fun dispatchCloudRender(token: String, videoUrl: String, ratio: String, voiceoverUrl: String, subtitleUrl: String, trimStart: String, trimEnd: String, autoSubtitles: Boolean, timelineJson: String): String {
