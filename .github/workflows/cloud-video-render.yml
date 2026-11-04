@@ -72,6 +72,7 @@ jobs:
           VIDEO_URL: ${{ inputs.video_url }}
           VOICEOVER_URL: ${{ inputs.voiceover_url }}
           SUBTITLE_URL: ${{ inputs.subtitle_url }}
+          TIMELINE_JSON: ${{ inputs.timeline_json }}
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 --max-time 1800 "$VIDEO_URL" -o input.mp4
@@ -85,6 +86,36 @@ jobs:
             test -s subtitles.srt
           fi
           ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
+          cp input.mp4 source-original.mp4
+          python - <<'PY'
+          import json, os, subprocess, urllib.request
+          clips = json.loads(os.environ.get("TIMELINE_JSON", "[]") or "[]")
+          videos = sorted((c for c in clips if c.get("track") == "VIDEO" and str(c.get("source", "")).startswith("https://")), key=lambda c: float(c.get("start", 0) or 0))
+          if len(videos) > 1:
+              concat = open("concat.txt", "w", encoding="utf-8")
+              for index, clip in enumerate(videos):
+                  src = clip["source"]
+                  path = f"timeline-{index:03}.mp4"
+                  print(f"Downloading timeline video {index + 1}/{len(videos)}")
+                  urllib.request.urlretrieve(src, path)
+                  duration = max(0.1, float(clip.get("duration", 0) or 0))
+                  probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path], capture_output=True, text=True)
+                  has_audio = bool(probe.stdout.strip())
+                  cmd = ["ffmpeg", "-y", "-i", path]
+                  if not has_audio:
+                      cmd += ["-f", "lavfi", "-t", str(duration), "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+                  cmd += ["-t", str(duration), "-map", "0:v:0"]
+                  cmd += ["-map", "0:a:0" if has_audio else "1:a:0", "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest", f"segment-{index:03}.mp4"]
+                  subprocess.run(cmd, check=True)
+                  concat.write(f"file 'segment-{index:03}.mp4'\n")
+              concat.close()
+              subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "composed.mp4"], check=True)
+              os.replace("composed.mp4", "input.mp4")
+              print(f"Composed {len(videos)} timeline video clips in start-time order.")
+          else:
+              print("Using the primary source video; add at least two uploaded VIDEO clips to enable multi-clip composition.")
+          PY
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 input.mp4
 
       - name: Generate speech-aligned subtitles with Whisper
         if: ${{ inputs.auto_subtitles == true && inputs.subtitle_url == '' }}
@@ -93,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -s voiceover.audio ]]; then AUDIO_INPUT="voiceover.audio"; else
-            ffmpeg -y -i input.mp4 -vn -ac 1 -ar 16000 transcription.wav
+            ffmpeg -y -i source-original.mp4 -vn -ac 1 -ar 16000 transcription.wav
             AUDIO_INPUT="transcription.wav"
           fi
           python -m pip install --disable-pip-version-check faster-whisper==1.1.1
