@@ -188,6 +188,7 @@ private fun StudioApp() {
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             mediaUri = uri
+            uploadedMediaUrl = ""
             try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
             status = "Media selected: ${uri.lastPathSegment ?: "file"}"
         }
