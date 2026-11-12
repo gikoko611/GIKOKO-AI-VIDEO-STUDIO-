@@ -1,0 +1,111 @@
+name: G.I KO KO Remotion Video Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: Video title
+        required: true
+        default: G.I KO KO VIDEO STUDIO
+        type: string
+      script:
+        description: Story / subtitle text (plain text)
+        required: true
+        default: Your story begins here. Add your script before rendering.
+        type: string
+      resolution:
+        description: Output resolution
+        required: true
+        default: 480p
+        type: choice
+        options:
+          - 360p
+          - 480p
+          - 720p
+      orientation:
+        description: Video orientation
+        required: true
+        default: landscape
+        type: choice
+        options:
+          - landscape
+          - portrait
+      duration:
+        description: Video duration in seconds (5-300)
+        required: true
+        default: "30"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remotion-render-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: cloud-render
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Ensure Remotion browser
+        run: npx remotion browser ensure
+
+      - name: Prepare render props
+        env:
+          VIDEO_TITLE: ${{ inputs.title }}
+          VIDEO_SCRIPT: ${{ inputs.script }}
+          VIDEO_RESOLUTION: ${{ inputs.resolution }}
+          VIDEO_ORIENTATION: ${{ inputs.orientation }}
+          VIDEO_DURATION: ${{ inputs.duration }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const resolution = ['360p', '480p', '720p'].includes(process.env.VIDEO_RESOLUTION)
+            ? process.env.VIDEO_RESOLUTION : '480p';
+          const orientation = ['landscape', 'portrait'].includes(process.env.VIDEO_ORIENTATION)
+            ? process.env.VIDEO_ORIENTATION : 'landscape';
+          const durationSec = Math.min(300, Math.max(5, Number(process.env.VIDEO_DURATION) || 30));
+          fs.writeFileSync('render-props.json', JSON.stringify({
+            title: process.env.VIDEO_TITLE || 'G.I KO KO VIDEO STUDIO',
+            script: process.env.VIDEO_SCRIPT || 'Your story begins here.',
+            resolution, orientation, durationSec
+          }));
+          NODE
+
+      - name: Render H.264 MP4
+        run: |
+          mkdir -p out
+          npx remotion render src/index.ts MainVideo out/GI-KO-KO-video.mp4 \
+            --props=render-props.json \
+            --codec=h264 \
+            --crf=28 \
+            --audio-bitrate=128k
+
+      - name: Verify MP4
+        run: |
+          test -s out/GI-KO-KO-video.mp4
+          file out/GI-KO-KO-video.mp4
+          ls -lh out/GI-KO-KO-video.mp4
+
+      - name: Upload MP4 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GI-KO-KO-video-${{ inputs.resolution }}-${{ inputs.orientation }}
+          path: cloud-render/out/GI-KO-KO-video.mp4
+          if-no-files-found: error
+          retention-days: 3
