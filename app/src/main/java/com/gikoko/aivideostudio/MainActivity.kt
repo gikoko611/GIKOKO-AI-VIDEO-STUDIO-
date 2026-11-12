@@ -1,41 +1,82 @@
 package com.gikoko.aivideostudio
-
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.*
+import org.json.*
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
-class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContent {
-            var showHelp by remember { mutableStateOf(false) }
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFFC857), secondary = Color(0xFF00C389))) {
-                Box(Modifier.fillMaxSize()) {
-                    OfflineStudioApp()
-                    FilledTonalButton(
-                        onClick = { showHelp = true },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 8.dp),
-                        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp)
-                    ) { Text("❔ Help") }
-                    if (showHelp) {
-                        Dialog(
-                            onDismissRequest = { showHelp = false },
-                            properties = DialogProperties(usePlatformDefaultWidth = false)
-                        ) {
-                            HelpGuideContent(onClose = { showHelp = false })
-                        }
-                    }
-                }
-            }
-        }
-    }
+private val Gold=Color(0xFFFFC65C); private val Amber=Color(0xFFFF9F32); private val Bg=Color(0xFF160D08); private val Panel=Color(0xFF28190F); private val Panel2=Color(0xFF352115); private val Muted=Color(0xFFBBA58C); private val Green=Color(0xFF71C99A)
+class MainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{MaterialTheme(colorScheme=darkColorScheme(primary=Gold,secondary=Green,background=Bg,surface=Panel,onPrimary=Bg,onBackground=Color.White,onSurface=Color.White)){StudioApp()}}}}
+data class Provider(val id:String,val name:String,val base:String,val key:String,val model:String,val kind:String)
+data class Mcp(val id:String,val name:String,val url:String,val token:String)
+private object Vault{
+ private const val alias="gikoko_studio_v1"
+ private fun key():SecretKey{val ks=java.security.KeyStore.getInstance("AndroidKeyStore").apply{load(null)};(ks.getKey(alias,null) as? SecretKey)?.let{return it};val g=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");g.init(KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());return g.generateKey()}
+ fun put(c:Context,n:String,v:String){val x=Cipher.getInstance("AES/GCM/NoPadding");x.init(Cipher.ENCRYPT_MODE,key());val b=x.iv+x.doFinal(v.toByteArray());c.getSharedPreferences("secure",0).edit().putString(n,android.util.Base64.encodeToString(b,0)).apply()}
+ fun get(c:Context,n:String,d:String):String=try{val b=android.util.Base64.decode(c.getSharedPreferences("secure",0).getString(n,""),0);val x=Cipher.getInstance("AES/GCM/NoPadding");x.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,b.copyOfRange(0,12)));String(x.doFinal(b.copyOfRange(12,b.size)))}catch(_:Exception){d}
 }
+private fun providers(c:Context):MutableList<Provider>{return try{val a=JSONArray(Vault.get(c,"providers","[]"));MutableList(a.length()){i->val o=a.getJSONObject(i);Provider(o.optString("id"),o.optString("name"),o.optString("base"),o.optString("key"),o.optString("model"),o.optString("kind"))}}catch(_:Exception){mutableListOf()}}
+private fun saveProviders(c:Context,l:List<Provider>){val a=JSONArray();l.forEach{a.put(JSONObject().put("id",it.id).put("name",it.name).put("base",it.base).put("key",it.key).put("model",it.model).put("kind",it.kind))};Vault.put(c,"providers",a.toString())}
+private fun call(url:String,method:String,key:String,body:String?=null,anthropic:Boolean=false):String{val c=URL(url).openConnection() as HttpURLConnection;c.requestMethod=method;c.connectTimeout=20000;c.readTimeout=90000;c.setRequestProperty("Accept","application/json");if(key.isNotBlank()){if(anthropic){c.setRequestProperty("x-api-key",key);c.setRequestProperty("anthropic-version","2023-06-01")}else c.setRequestProperty("Authorization","Bearer "+key)};if(body!=null){c.doOutput=true;c.setRequestProperty("Content-Type","application/json");c.outputStream.use{it.write(body.toByteArray())}};val code=c.responseCode;val s=if(code in 200..299)c.inputStream else c.errorStream;val out=s?.bufferedReader()?.use{it.readText()}?:"";c.disconnect();if(code !in 200..299)throw Exception("HTTP "+code+": "+out.take(400));return out}
+private suspend fun ask(p:Provider,h:List<Pair<String,String>>):String=withContext(Dispatchers.IO){val base=p.base.trimEnd('/');when(p.kind){
+ "anthropic"->{val a=JSONArray();h.filter{it.first!="system"}.forEach{a.put(JSONObject().put("role",it.first).put("content",it.second))};val b=JSONObject().put("model",p.model).put("max_tokens",2048).put("messages",a);h.firstOrNull{it.first=="system"}?.let{b.put("system",it.second)};JSONObject(call(base+"/v1/messages","POST",p.key,b.toString(),true)).getJSONArray("content").getJSONObject(0).optString("text")}
+ "gemini"->{val a=JSONArray();h.filter{it.first!="system"}.forEach{a.put(JSONObject().put("role",if(it.first=="assistant")"model" else "user").put("parts",JSONArray().put(JSONObject().put("text",it.second))))};val u=base+"/models/"+p.model+":generateContent?key="+java.net.URLEncoder.encode(p.key,"UTF-8");JSONObject(call(u,"POST","",JSONObject().put("contents",a).toString())).getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).optString("text")}
+ else->{val a=JSONArray();h.forEach{a.put(JSONObject().put("role",it.first).put("content",it.second))};JSONObject(call(base+"/chat/completions","POST",p.key,JSONObject().put("model",p.model).put("messages",a).toString())).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content")}
+}}
+@Composable private fun StudioApp(){
+ val c=LocalContext.current;val scope=rememberCoroutineScope();var tab by remember{mutableIntStateOf(0)};var ps by remember{mutableStateOf(providers(c))};var mcps by remember{mutableStateOf(mutableListOf<Mcp>())};var chosen by remember{mutableStateOf(ps.firstOrNull()?.id?:"")};var status by remember{mutableStateOf("Ready • API keys encrypted on this device")};var busy by remember{mutableStateOf(false)}
+ var pname by remember{mutableStateOf("")};var base by remember{mutableStateOf("")};var key by remember{mutableStateOf("")};var model by remember{mutableStateOf("")};var kind by remember{mutableStateOf("openai")}
+ var mname by remember{mutableStateOf("")};var murl by remember{mutableStateOf("")};var mtoken by remember{mutableStateOf("")};var mresult by remember{mutableStateOf("")}
+ var prompt by remember{mutableStateOf("")};var history by remember{mutableStateOf(listOf<Pair<String,String>>())};var skills by remember{mutableStateOf(c.filesDir.resolve("skills").listFiles()?.map{it.name}?: emptyList())};var video by remember{mutableStateOf<Uri?>(null)}
+ val player= remember{ExoPlayer.Builder(c).build()};DisposableEffect(player){onDispose{player.release()}}
+ val pickSkill=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){us->us.forEach{u->scope.launch(Dispatchers.IO){try{val dir=c.filesDir.resolve("skills").apply{mkdirs()};val f=File(dir,File(u.lastPathSegment?:"skill.txt").name);c.contentResolver.openInputStream(u)?.use{i->f.outputStream().use{i.copyTo(it)}};withContext(Dispatchers.Main){skills=dir.listFiles()?.map{it.name}?:emptyList();status="Skill imported: "+f.name}}catch(e:Exception){withContext(Dispatchers.Main){status=e.message?:"Import error"}}}}}
+ val pickVideo=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){u->if(u!=null){video=u;player.setMediaItem(MediaItem.fromUri(u));player.prepare()}}
+ val saveVideo=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("video/mp4")){u->val v=video;if(u!=null&&v!=null)scope.launch(Dispatchers.IO){try{c.contentResolver.openInputStream(v)?.use{i->c.contentResolver.openOutputStream(u)?.use{i.copyTo(it)}};withContext(Dispatchers.Main){status="Video saved"}}catch(e:Exception){withContext(Dispatchers.Main){status=e.message?:"Save failed"}}}}
+ Scaffold(containerColor=Bg,topBar={Column(Modifier.fillMaxWidth().background(Panel).padding(15.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("◈",color=Gold,fontSize=30.sp);Spacer(Modifier.width(10.dp));Column{Text("G.I KO KO AI STUDIO",color=Gold,fontWeight=FontWeight.Black,fontSize=19.sp);Text("MULTI-MODEL • SKILLS • MCP • VIDEO",color=Muted,fontSize=9.sp)}};Spacer(Modifier.height(8.dp));Text("✦ One workspace for your AI models and creative tools",color=Muted,fontSize=11.sp)}},bottomBar={NavigationBar(containerColor=Panel){listOf("Home","Chat","Models","Skills","MCP","Video").forEachIndexed{i,s->NavigationBarItem(selected=tab==i,onClick={tab=i},icon={Text(listOf("⌂","✧","◈","⬡","⇄","▶")[i],fontSize=18.sp)},label={Text(s,fontSize=9.sp)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Gold,selectedTextColor=Gold,indicatorColor=Panel2,unselectedTextColor=Muted,unselectedIconColor=Muted))}}}){pad->Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+ when(tab){
+ 0->{Text("CONTROL CENTER",color=Gold,fontWeight=FontWeight.Bold);CardBox("AI WORKSPACE","Connect Claude, GLM, GPT, Gemini, DeepSeek or any compatible API.");Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Stat("MODELS",ps.size.toString(),Modifier.weight(1f));Stat("MCP",mcps.size.toString(),Modifier.weight(1f));Stat("SKILLS",skills.size.toString(),Modifier.weight(1f))};listOf("AI CHAT" to 1,"MODEL HUB" to 2,"SKILL LIBRARY" to 3,"MCP CONNECT" to 4,"VIDEO STUDIO" to 5).forEach{(s,n)->Surface(Modifier.fillMaxWidth().clickable{tab=n},shape=RoundedCornerShape(13.dp),color=Panel,border=BorderStroke(1.dp,Gold2)){Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){Text("✦",color=Gold,fontSize=23.sp);Spacer(Modifier.width(12.dp));Text(s,color=Gold,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text("›",color=Gold,fontSize=24.sp)}}};Text(status,color=Green,fontSize=11.sp)}
+ 1->{Text("AI CHAT",color=Gold,fontWeight=FontWeight.Bold);if(ps.isEmpty())CardBox("NO PROVIDER","Add a provider in Model Hub first.")else{var ix by remember{mutableIntStateOf(ps.indexOfFirst{it.id==chosen}.coerceAtLeast(0))};Row(verticalAlignment=Alignment.CenterVertically){Text("Model",color=Muted);Spacer(Modifier.width(10.dp));var expanded by remember{mutableStateOf(false)};Box{OutlinedButton(onClick={expanded=true}){Text(ps.getOrNull(ix)?.name?:"Choose",color=Gold)};DropdownMenu(expanded,onDismissRequest={expanded=false}){ps.forEachIndexed{i,p->DropdownMenuItem(text={Text(p.name)},onClick={ix=i;chosen=p.id;expanded=false})}}}};history.forEach{(r,t)->CardBox(r.uppercase(),t)};OutlinedTextField(prompt,{prompt=it},modifier=Modifier.fillMaxWidth(),label={Text("Message…")},minLines=2,colors=fields());GoldButton("SEND",busy||prompt.isBlank()){val p=ps.firstOrNull{it.id==chosen};val msg=prompt;if(p!=null){history=history+("user" to msg);prompt="";busy=true;scope.launch{try{history=history+("assistant" to ask(p,history));status="Response received"}catch(e:Exception){history=history+("assistant" to ("Error: "+e.message))};busy=false}}}}}
+ 2->{Text("MODEL & API HUB",color=Gold,fontWeight=FontWeight.Bold);CardBox("UNIVERSAL PROVIDERS","OpenAI-compatible • Anthropic Messages • Gemini API");Field("Provider name",pname,{pname=it},"Claude / GLM / Custom");Field("Base URL",base,{base=it},"https://api.example.com/v1");Field("API key",key,{key=it},"Paste API key",true);Field("Model ID",model,{model=it},"Model name / ID");Text("API format",color=Muted);Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf("openai","anthropic","gemini").forEach{k->FilterChip(selected=kind==k,onClick={kind=k},label={Text(k.uppercase())})}};GoldButton("SAVE PROVIDER",pname.isBlank()||base.isBlank()||key.isBlank()||model.isBlank()){val p=Provider(UUID.randomUUID().toString(),pname,base,key,model,kind);ps=ps.filterNot{it.name==pname}+p;saveProviders(c,ps);chosen=p.id;pname="";base="";key="";model="";status="Saved securely"};GoldButton("TEST API",busy||base.isBlank()||key.isBlank()){busy=true;scope.launch{try{val res=withContext(Dispatchers.IO){if(kind=="anthropic")call(base.trimEnd()+"/v1/models","GET",key,null,true)else if(kind=="gemini")"Gemini API key entered; test with a chat request."else call(base.trimEnd()+"/models","GET",key)};status="Connection OK: "+res.take(150)}catch(e:Exception){status="Test failed: "+e.message};busy=false}};ps.forEach{p->CardBox(p.name,p.base+" • "+p.model+" • "+p.kind);TextButton(onClick={ps=ps.filterNot{it.id==p.id};saveProviders(c,ps);status="Provider removed"}){Text("REMOVE",color=Amber)}};Text("Secrets are encrypted using Android Keystore. Never paste keys into public repositories.",color=Green,fontSize=11.sp)}
+ 3->{Text("SKILL LIBRARY",color=Gold,fontWeight=FontWeight.Bold);CardBox("IMPORT SKILLS","Choose .ZIP or .TXT files. Files are stored in private app storage.");GoldButton("＋ IMPORT ZIP / TXT",false){pickSkill.launch(arrayOf("text/plain","application/zip","application/x-zip-compressed","application/octet-stream"))};skills.forEach{s->CardBox("⬡ "+s,"Imported skill package");TextButton(onClick={c.filesDir.resolve("skills").resolve(s).delete();skills=c.filesDir.resolve("skills").listFiles()?.map{it.name}?:emptyList()}){Text("DELETE",color=Amber)}};Text("TXT can be used as instruction content. ZIP is stored but scripts are never executed. Skill-to-tool permissions and runtime loading are planned for the next integration milestone.",color=Muted,fontSize=11.sp)}
+ 4->{Text("MCP CONNECT",color=Gold,fontWeight=FontWeight.Bold);CardBox("MODEL CONTEXT PROTOCOL","Add Streamable HTTP MCP endpoints and run JSON-RPC initialize checks.");Field("Server name",mname,{mname=it},"My MCP");Field("Endpoint URL",murl,{murl=it},"https://host/mcp");Field("Bearer token",mtoken,{mtoken=it},"Optional",true);GoldButton("SAVE MCP SERVER",mname.isBlank()||murl.isBlank()){mcps=mcps+Mcp(UUID.randomUUID().toString(),mname,murl,mtoken);Vault.put(c,"mcps",JSONArray(mcps.map{JSONObject().put("name",it.name).put("url",it.url).put("token",it.token)}).toString());mname="";murl="";mtoken="";status="MCP server saved"};mcps.forEach{m->CardBox(m.name,m.url);Row{TextButton(onClick={busy=true;scope.launch{try{val b=JSONObject().put("jsonrpc","2.0").put("id",1).put("method","initialize").put("params",JSONObject().put("protocolVersion","2024-11-05").put("capabilities",JSONObject()).put("clientInfo",JSONObject().put("name","G.I KO KO AI STUDIO").put("version","1.0")));mresult=withContext(Dispatchers.IO){call(m.url,"POST",m.token,b.toString())};status="MCP response received"}catch(e:Exception){status="MCP test: "+e.message};busy=false}}){Text("TEST",color=Gold)};TextButton(onClick={mcps=mcps.filterNot{it.id==m.id}}){Text("REMOVE",color=Amber)}}};if(mresult.isNotBlank())CardBox("SERVER RESPONSE",mresult.take(500));Text("This initial rebuild stores endpoints and tests initialize. Full MCP tool discovery, approvals and tool invocation require the next integration stage.",color=Muted,fontSize=11.sp)}
+ 5->{Text("VIDEO STUDIO",color=Gold,fontWeight=FontWeight.Bold);CardBox("LOCAL VIDEO PLAYER","Open videos on your phone and save a copy to a folder you choose.");GoldButton("OPEN VIDEO",false){pickVideo.launch(arrayOf("video/*"))};if(video!=null){val exo=player;AndroidView(factory={PlayerView(it).apply{player=exo;useController=true}},modifier=Modifier.fillMaxWidth().height(230.dp));GoldButton("DOWNLOAD / SAVE COPY",false){saveVideo.launch("GIKOKO-video.mp4")}};CardBox("AI VIDEO CREATION","Text models can create storyboards and animation instructions. Actual MP4 generation requires a dedicated video-generation API or local renderer.");Field("Animation prompt",prompt,{prompt=it},"Describe scene, character and motion");GoldButton("SEND PROMPT TO CHAT",prompt.isBlank()){history=history+("user" to ("Create a detailed animation storyboard: "+prompt));tab=1;status="Prompt added to chat"}}
+ }
+}}
+}
+@Composable private fun CardBox(t:String,d:String){Surface(color=Panel,shape=RoundedCornerShape(14.dp),border=BorderStroke(1.dp,Gold2),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp)){Text(t,color=Gold,fontWeight=FontWeight.Bold);Spacer(Modifier.height(4.dp));Text(d,color=Muted,fontSize=12.sp)}}}
+@Composable private fun Stat(t:String,v:String,m:Modifier){Surface(m,shape=RoundedCornerShape(12.dp),color=Panel){Column(Modifier.padding(12.dp)){Text(v,color=Gold,fontSize=22.sp,fontWeight=FontWeight.Bold);Text(t,color=Muted,fontSize=10.sp)}}}
+@Composable private fun GoldButton(t:String,off:Boolean,onClick:()->Unit){Button(onClick=onClick,enabled=!off,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=Gold,contentColor=Bg,disabledContainerColor=Panel2)){Text(t,fontWeight=FontWeight.Bold)}}
+@Composable private fun Field(t:String,v:String,change:(String)->Unit,hint:String,secret:Boolean=false){Column{Text(t,color=Muted,fontSize=11.sp);OutlinedTextField(v,change,modifier=Modifier.fillMaxWidth(),placeholder={Text(hint)},singleLine=true,visualTransformation=if(secret)PasswordVisualTransformation()else androidx.compose.ui.text.input.VisualTransformation.None,colors=fields())}}
+@Composable private fun fields()=OutlinedTextFieldDefaults.colors(focusedBorderColor=Gold,unfocusedBorderColor=Gold2,focusedLabelColor=Gold,cursorColor=Gold,focusedTextColor=Color.White,unfocusedTextColor=Color.White)
