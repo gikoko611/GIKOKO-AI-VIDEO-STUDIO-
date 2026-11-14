@@ -1,0 +1,10 @@
+{
+  "name": "gi-koko-ltx25-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Free Hugging Face ZeroGPU client for LTX-2.5",
+  "dependencies": {
+    "@gradio/client": "^1.16.0"
+  }
+}
