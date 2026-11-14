@@ -13,7 +13,7 @@ This workflow adds an LTX-2.5 generation path without a ComfyUI Cloud API key or
 
 1. Open the repository's **Actions** tab.
 2. Select **G.I KO KO LTX-2.5 Free ZeroGPU Render**.
-3. Choose **Run workflow**.
+3. Press **Run workflow**.
 4. Enter a prompt. For I2V, provide a publicly accessible JPG/PNG URL.
 5. Choose portrait/landscape and 1–5 seconds.
 6. When complete, download the MP4 from **Artifacts**.
@@ -30,7 +30,7 @@ The workflow works without a token by using the public Space as an anonymous vis
 
 ## Scope
 
-This first GitHub Actions milestone generates a clip and returns an artifact. It does not yet add an in-app upload/progress/download screen or persistent job API to the Android/Web Studio UI. Those require wiring the existing frontend/backend to dispatch this workflow and retrieve its artifact.
+This GitHub Actions milestone generates a clip and returns an artifact. It does not yet add an in-app upload/progress/download screen or persistent job API to the Studio UI. The repository's current cloud-render milestone is a Remotion renderer; this LTX workflow is a separate AI generation path.
 
 ## Official references
 
