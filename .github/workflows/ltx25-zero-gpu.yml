@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        working-directory: cloud-render
+        working-directory: cloud-render/ltx25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
           node-version: 22
 
       - name: Install Gradio client
-        run: npm install --no-save --no-audit --no-fund @gradio/client
+        run: npm install --no-audit --no-fund
 
       - name: Generate with LTX-2.5 on Hugging Face ZeroGPU
         env:
@@ -70,14 +70,14 @@ jobs:
           LTX_DURATION: ${{ inputs.duration }}
           LTX_SEED: ${{ inputs.seed }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: node ltx25-generate.mjs
+        run: node generate.mjs
 
       - name: Upload MP4 result
         uses: actions/upload-artifact@v4
         with:
           name: GI-KO-KO-LTX-2.5-${{ inputs.orientation }}
           path: |
-            cloud-render/out/GI-KO-KO-LTX-2.5.mp4
-            cloud-render/out/generation-info.json
+            cloud-render/ltx25/out/GI-KO-KO-LTX-2.5.mp4
+            cloud-render/ltx25/out/generation-info.json
           if-no-files-found: error
           retention-days: 3
