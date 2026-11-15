@@ -1,6 +1,9 @@
 name: THE LAST LIGHT - 5 Minute Myanmar Cinematic Render
 
 on:
+  push:
+    branches:
+      - feature/the-last-light-render
   workflow_dispatch:
 
 permissions:
